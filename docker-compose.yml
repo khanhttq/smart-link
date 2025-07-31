@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - '3000:80'
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_API_URL=http://localhost:4000
+
+  backend:
+    build: ./backend
+    ports:
+      - '4000:4000'
+    depends_on:
+      - postgres
+      - redis
+      - elasticsearch
+    environment:
+      - DATABASE_URL=postgresql://shortlink_user:shortlink_pass@postgres:5432/shortlink_db
+      - REDIS_URL=redis://redis:6379
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - JWT_SECRET=your-super-secret-jwt-key-change-this
+      - PORT=4000
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  postgres:
+    image: postgres:14
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: shortlink_user
+      POSTGRES_PASSWORD: shortlink_pass
+      POSTGRES_DB: shortlink_db
+    ports:
+      - '5432:5432'
+
+  redis:
+    image: redis:alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+    environment:
+      - discovery.type=single-node
+      - 'ES_JAVA_OPTS=-Xms512m -Xmx512m'
+      - xpack.security.enabled=false
+    ports:
+      - '9200:9200'
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  worker:
+    build: ./worker
+    depends_on:
+      - elasticsearch
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    volumes:
+      - ./worker:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:
+  redis_data:
+  es_data:
