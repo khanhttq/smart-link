@@ -31,48 +31,74 @@ app.use(express.urlencoded({ extended: true }));
 logger.info('🚀 Shortlink Backend Starting...');
 logger.info(`Environment: ${config.nodeEnv}`);
 
-// Routes (sẽ setup sau)
-// app.use('/api/auth', authDomain.routes);
-// app.use('/api/links', linksDomain.routes);
-// app.use('/api/analytics', analyticsDomain.routes);
-// app.use('/api/users', usersDomain.routes);
+// ===== ROUTES SETUP (THỨ TỰ QUAN TRỌNG) =====
 
-// Health check
+// 1. SPECIFIC ROUTES TRƯỚC (không bị conflict)
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    message: 'Shortlink Backend - Domain Structure Ready',
+    message: 'Shortlink Backend - Routes Connected',
     environment: config.nodeEnv,
-    version: '1.0.0'
+    version: '1.0.0',
+    routes: {
+      auth: '/api/auth/*',
+      links: '/api/links/*',
+      analytics: '/api/analytics/*',
+      users: '/api/users/*',
+      redirect: '/:shortCode'
+    }
   });
 });
 
-// Root endpoint
 app.get('/', (req, res) => {
   res.json({
     message: 'Shortlink API',
     version: '1.0.0',
     endpoints: {
       health: '/health',
-      auth: '/api/auth (coming soon)',
-      links: '/api/links (coming soon)',
-      analytics: '/api/analytics (coming soon)',
-      users: '/api/users (coming soon)'
+      auth: '/api/auth',
+      links: '/api/links',
+      analytics: '/api/analytics',
+      users: '/api/users',
+      redirect: '/:shortCode'
+    },
+    examples: {
+      'POST /api/auth/login': 'Login user',
+      'POST /api/links': 'Create shortlink',
+      'GET /api/analytics/dashboard': 'Get analytics',
+      'GET /abc123': 'Redirect shortlink'
     }
   });
 });
 
-// 404 handler
+// 2. API ROUTES
+app.use('/api/auth', authDomain.routes);
+app.use('/api/links', linksDomain.routes.main);
+app.use('/api/analytics', analyticsDomain.routes);
+app.use('/api/users', usersDomain.routes);
+
+// 3. REDIRECT ROUTES (CUỐI CÙNG - wildcard)
+app.use('/', linksDomain.routes.redirect);
+
+// 4. 404 HANDLER (SAU TẤT CẢ)
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Not Found',
     message: `Route ${req.originalUrl} not found`,
-    method: req.method
+    method: req.method,
+    availableRoutes: [
+      '/health',
+      '/api/auth/*',
+      '/api/links/*', 
+      '/api/analytics/*',
+      '/api/users/*',
+      '/:shortCode (redirect)'
+    ]
   });
 });
 
-// Error handling
+// 5. ERROR HANDLING (CUỐI CÙNG)
 app.use((err, req, res, next) => {
   logger.error('Error:', err);
   res.status(500).json({ 

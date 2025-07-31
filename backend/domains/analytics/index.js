@@ -1,6 +1,8 @@
 // domains/analytics/index.js
+const analyticsRoutes = require('./routes/analyticsRoutes');
+
 module.exports = {
-  routes: null,        // Sẽ setup sau
-  services: null,      // Sẽ setup sau
-  controllers: null    // Sẽ setup sau
+  routes: analyticsRoutes,
+  services: null,
+  controllers: null
 };

@@ -1,6 +1,8 @@
 // domains/users/index.js
+const userRoutes = require('./routes/userRoutes');
+
 module.exports = {
-  routes: null,        // Sẽ setup sau
-  services: null,      // Sẽ setup sau
-  controllers: null    // Sẽ setup sau
+  routes: userRoutes,
+  services: null,
+  controllers: null
 };
