@@ -1,29 +1,22 @@
 // domains/analytics/routes/analyticsRoutes.js
 const express = require('express');
+const analyticsController = require('../controllers/AnalyticsController');
+const authMiddleware = require('../../auth/middleware/authMiddleware');
 const router = express.Router();
 
-router.get('/dashboard', (req, res) => {
-  res.json({
-    message: 'Analytics dashboard endpoint',
-    status: 'coming_soon',
-    query: req.query
-  });
-});
+// All analytics routes require authentication
+router.use(authMiddleware.verifyToken);
 
-router.get('/clicks', (req, res) => {
-  res.json({
-    message: 'Click analytics endpoint',
-    status: 'coming_soon',
-    query: req.query
-  });
-});
+// Dashboard and overview
+router.get('/dashboard', analyticsController.getDashboard);
+router.get('/realtime', analyticsController.getRealtime);
+router.get('/top-links', analyticsController.getTopLinks);
 
-router.get('/export', (req, res) => {
-  res.json({
-    message: 'Export analytics endpoint',
-    status: 'coming_soon',
-    query: req.query
-  });
-});
+// Detailed analytics
+router.get('/clicks', analyticsController.getClicks);
+router.get('/link/:linkId', analyticsController.getLinkAnalytics);
+
+// Export
+router.get('/export', analyticsController.exportData);
 
 module.exports = router;
