@@ -17,7 +17,7 @@ const sequelize = new Sequelize(
     port: config.port,
     dialect: config.dialect,
     pool: config.pool,
-    logging: config.logging || false
+    logging: false // Turn off logging for cleaner output
   }
 );
 
