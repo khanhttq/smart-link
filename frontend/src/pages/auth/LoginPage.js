@@ -1,4 +1,4 @@
-// frontend/src/pages/auth/LoginPage.js
+// frontend/src/pages/auth/LoginPage.js - SMART VERSION
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
@@ -10,14 +10,17 @@ import {
   Divider, 
   Space,
   Row,
-  Col
+  Col,
+  Alert,
+  message
 } from 'antd';
 import {
   UserOutlined,
   LockOutlined,
   LoginOutlined,
   GoogleOutlined,
-  LinkOutlined
+  LinkOutlined,
+  InfoCircleOutlined
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -32,18 +35,39 @@ const LoginPage = () => {
   const handleSubmit = async (values) => {
     setLoading(true);
     
-    const result = await login(values.email, values.password);
-    
-    if (result.success) {
-      navigate('/dashboard');
+    try {
+      console.log('🔍 Starting login process...');
+      
+      const result = await login(values.email, values.password);
+      
+      console.log('🔍 Login result:', result);
+      
+      if (result.success) {
+        console.log('✅ Login successful, navigating to dashboard');
+        // Small delay to let user see success message
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 1000);
+      }
+      // If login fails with invalid_credentials, the smart auth system 
+      // will handle showing the registration modal automatically
+      
+    } catch (error) {
+      console.error('🚨 Login exception:', error);
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleGoogleLogin = () => {
-    // Redirect to Google OAuth
-    window.location.href = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
+    try {
+      const googleUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
+      console.log('🌐 Redirecting to Google OAuth:', googleUrl);
+      window.location.href = googleUrl;
+    } catch (error) {
+      console.error('🚨 Google login error:', error);
+      message.error('Không thể kết nối đến Google. Vui lòng thử lại!');
+    }
   };
 
   return (
@@ -58,9 +82,19 @@ const LoginPage = () => {
                 Đăng nhập
               </Title>
               <Text type="secondary">
-                Chào mừng trở lại với Shortlink System
+                Chào mừng đến với Shortlink System
               </Text>
             </div>
+
+            {/* Smart Login Info */}
+            <Alert
+              message="🚀 Đăng nhập thông minh"
+              description="Chưa có tài khoản? Không sao! Chúng tôi sẽ tự động tạo tài khoản mới cho bạn."
+              type="info"
+              icon={<InfoCircleOutlined />}
+              showIcon
+              style={{ textAlign: 'left' }}
+            />
 
             {/* Login Form */}
             <Form
@@ -80,7 +114,8 @@ const LoginPage = () => {
               >
                 <Input 
                   prefix={<UserOutlined />} 
-                  placeholder="Email" 
+                  placeholder="Email của bạn" 
+                  autoComplete="email"
                 />
               </Form.Item>
 
@@ -93,7 +128,8 @@ const LoginPage = () => {
               >
                 <Input.Password 
                   prefix={<LockOutlined />} 
-                  placeholder="Mật khẩu" 
+                  placeholder="Mật khẩu của bạn" 
+                  autoComplete="current-password"
                 />
               </Form.Item>
 
@@ -105,11 +141,24 @@ const LoginPage = () => {
                   icon={<LoginOutlined />}
                   block
                   size="large"
+                  disabled={loading}
                 >
-                  {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                  {loading ? 'Đang xử lý...' : '🚀 Đăng nhập / Tạo tài khoản'}
                 </Button>
               </Form.Item>
             </Form>
+
+            {/* How it works */}
+            <div style={{ textAlign: 'left', padding: '0 8px' }}>
+              <Text strong style={{ fontSize: '14px', color: '#1890ff' }}>
+                💡 Cách hoạt động:
+              </Text>
+              <ul style={{ fontSize: '12px', color: '#666', marginTop: 8, paddingLeft: 16 }}>
+                <li>Nếu bạn đã có tài khoản → Đăng nhập ngay</li>
+                <li>Nếu chưa có tài khoản → Tự động tạo tài khoản mới</li>
+                <li>Không cần phải nhớ có tài khoản hay chưa!</li>
+              </ul>
+            </div>
 
             {/* Google Login */}
             <div style={{ width: '100%' }}>
@@ -122,6 +171,7 @@ const LoginPage = () => {
                 onClick={handleGoogleLogin}
                 block
                 size="large"
+                disabled={loading}
                 style={{ 
                   borderColor: '#db4437',
                   color: '#db4437'
@@ -131,12 +181,12 @@ const LoginPage = () => {
               </Button>
             </div>
 
-            {/* Register Link */}
+            {/* Traditional Register Link (optional) */}
             <div>
-              <Text type="secondary">
-                Chưa có tài khoản? {' '}
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                Muốn tạo tài khoản thủ công? {' '}
                 <Link to="/register" style={{ fontWeight: 500 }}>
-                  Đăng ký ngay
+                  Đăng ký truyền thống
                 </Link>
               </Text>
             </div>
