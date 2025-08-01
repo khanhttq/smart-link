@@ -1,0 +1,85 @@
+// domains/auth/middleware/authMiddleware.js
+const authService = require('../services/AuthService');
+
+class AuthMiddleware {
+  // Verify JWT token
+  static async verifyToken(req, res, next) {
+    try {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: 'Access token required'
+        });
+      }
+
+      const { user, decoded } = await authService.verifyToken(token);
+      
+      // Attach user and token info to request
+      req.user = user;
+      req.token = token;
+      req.tokenData = decoded;
+      
+      next();
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: error.message || 'Invalid token'
+      });
+    }
+  }
+
+  // Optional authentication (don't fail if no token)
+  static async optionalAuth(req, res, next) {
+    try {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      
+      if (token) {
+        const { user, decoded } = await authService.verifyToken(token);
+        req.user = user;
+        req.token = token;
+        req.tokenData = decoded;
+      }
+      
+      next();
+    } catch (error) {
+      // Continue without auth
+      next();
+    }
+  }
+
+  // Role-based authorization
+  static requireRole(roles) {
+    return (req, res, next) => {
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required'
+        });
+      }
+
+      const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [req.user.role];
+      const hasRole = roles.some(role => userRoles.includes(role));
+
+      if (!hasRole) {
+        return res.status(403).json({
+          success: false,
+          message: 'Insufficient permissions',
+          required: roles,
+          current: userRoles
+        });
+      }
+
+      next();
+    };
+  }
+
+  // Admin only
+  static requireAdmin = AuthMiddleware.requireRole(['admin']);
+
+  // User or higher
+  static requireUser = AuthMiddleware.requireRole(['user', 'editor', 'admin']);
+}
+
+module.exports = AuthMiddleware;

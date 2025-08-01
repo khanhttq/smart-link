@@ -1,36 +1,23 @@
 // domains/auth/routes/authRoutes.js
 const express = require('express');
+const authController = require('../controllers/AuthController');
+const oauthController = require('../controllers/OAuthController');
+const authMiddleware = require('../middleware/authMiddleware');
 const router = express.Router();
 
-// Basic auth routes
-router.post('/register', (req, res) => {
-  res.json({
-    message: 'Register endpoint',
-    status: 'coming_soon',
-    body: req.body
-  });
-});
+// Authentication routes
+router.post('/register', authController.register);
+router.post('/login', authController.login);
+router.post('/refresh', authController.refresh);
 
-router.post('/login', (req, res) => {
-  res.json({
-    message: 'Login endpoint',
-    status: 'coming_soon',
-    body: req.body
-  });
-});
+// Protected routes
+router.post('/logout', authMiddleware.verifyToken, authController.logout);
+router.get('/me', authMiddleware.verifyToken, authController.getProfile);
+router.post('/logout-all', authMiddleware.verifyToken, authController.logoutAll);
 
-router.post('/logout', (req, res) => {
-  res.json({
-    message: 'Logout endpoint',
-    status: 'coming_soon'
-  });
-});
-
-router.get('/me', (req, res) => {
-  res.json({
-    message: 'Get current user endpoint',
-    status: 'coming_soon'
-  });
-});
+// OAuth routes
+router.get('/google', oauthController.googleAuth);
+router.get('/google/callback', oauthController.googleCallback);
+router.get('/google/callback/json', oauthController.googleCallbackJson); // For testing
 
 module.exports = router;
