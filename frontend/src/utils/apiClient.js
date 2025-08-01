@@ -20,12 +20,6 @@ export const setAuthToken = (token) => {
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    // Add timestamp to prevent caching
-    config.params = {
-      ...config.params,
-      _t: Date.now()
-    };
-    
     console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },

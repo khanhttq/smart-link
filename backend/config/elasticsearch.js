@@ -1,6 +1,5 @@
 // config/elasticsearch.js
 const { Client } = require('@elastic/elasticsearch');
-const config = require('./index');
 
 class ElasticSearchConnection {
   constructor() {
@@ -10,12 +9,10 @@ class ElasticSearchConnection {
 
   async connect() {
     try {
+      // Docker Desktop ES usually runs without auth
       this.client = new Client({
         node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200',
-        auth: {
-          username: process.env.ELASTICSEARCH_USERNAME || 'elastic',
-          password: process.env.ELASTICSEARCH_PASSWORD || 'password'
-        },
+        // Remove auth for Docker Desktop default setup
         requestTimeout: 60000,
         pingTimeout: 30000,
         maxRetries: 3,
@@ -24,7 +21,7 @@ class ElasticSearchConnection {
 
       // Test connection
       const health = await this.client.cluster.health();
-      console.log('🔍 ElasticSearch connected:', health.body.status);
+      console.log('🔍 ElasticSearch connected:', health.status);
       this.isConnected = true;
 
       // Setup indexes
@@ -58,6 +55,9 @@ class ElasticSearchConnection {
             originalUrl: { type: 'text' },
             campaign: { type: 'keyword' },
             timestamp: { type: 'date' },
+            '@timestamp': { type: 'date' },
+            date: { type: 'date' },
+            hour: { type: 'date' },
             ipAddress: { type: 'ip' },
             country: { type: 'keyword' },
             city: { type: 'keyword' },
@@ -90,56 +90,74 @@ class ElasticSearchConnection {
       try {
         const exists = await this.client.indices.exists({ index });
         
-        if (!exists.body) {
+        if (!exists) {
           await this.client.indices.create({
             index,
             body: { mappings: mapping }
           });
-          console.log(`✅ Created ElasticSearch index: ${index}`);
+          console.log(`✅ Created index: ${index}`);
+        } else {
+          console.log(`ℹ️ Index already exists: ${index}`);
         }
       } catch (error) {
-        console.error(`❌ Failed to create index ${index}:`, error.message);
+        console.error(`❌ Error setting up index ${index}:`, error.message);
       }
     }
   }
 
+  // Mock client for development when ES is not available
   createMockClient() {
     return {
-      index: async () => ({ body: { _id: 'mock_id', result: 'created' } }),
-      search: async () => ({ 
-        body: { 
-          hits: { 
-            total: { value: 0 }, 
-            hits: [] 
-          },
-          aggregations: {}
-        } 
-      }),
-      cluster: {
-        health: async () => ({ body: { status: 'mock' } })
+      index: async (params) => {
+        console.log('🚧 Mock ES Index:', params.index, 'Document:', JSON.stringify(params.body, null, 2));
+        return { body: { _id: 'mock_' + Date.now() } };
       },
+      
+      bulk: async (params) => {
+        console.log('🚧 Mock ES Bulk:', params.body.length / 2, 'documents');
+        return { body: { items: new Array(params.body.length / 2).fill({ index: { _id: 'mock_' + Date.now() } }) } };
+      },
+      
+      search: async (params) => {
+        console.log('🚧 Mock ES Search:', params.index, 'Query:', JSON.stringify(params.body?.query, null, 2));
+        return {
+          body: {
+            hits: {
+              total: { value: 0 },
+              hits: []
+            },
+            aggregations: {
+              total_clicks: { value: 0 },
+              unique_clicks: { value: 0 },
+              daily_clicks: { buckets: [] },
+              top_countries: { buckets: [] },
+              top_devices: { buckets: [] },
+              top_browsers: { buckets: [] }
+            }
+          }
+        };
+      },
+      
+      cluster: {
+        health: async () => ({ status: 'mock' })
+      },
+      
       indices: {
-        exists: async () => ({ body: true }),
-        create: async () => ({ body: { acknowledged: true } })
+        exists: async () => false,
+        create: async (params) => {
+          console.log('🚧 Mock ES Create Index:', params.index);
+          return { acknowledged: true };
+        }
       }
     };
   }
 
   getClient() {
-    if (!this.client) {
-      throw new Error('ElasticSearch not connected');
-    }
     return this.client;
   }
 
-  async ping() {
-    try {
-      if (!this.client) return false;
-      const response = await this.client.ping();
-      return response.statusCode === 200;
-    } catch (error) {
-      return false;
-    }
+  isReady() {
+    return this.isConnected;
   }
 }
 

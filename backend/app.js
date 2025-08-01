@@ -13,6 +13,7 @@ const linksDomain = require('./domains/links');
 const analyticsDomain = require('./domains/analytics');
 const usersDomain = require('./domains/users');
 const securityDomain = require('./domains/security');
+const adminRoutes = require('./domains/admin/routes/adminRoutes'); // ADDED
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.get('/health', (req, res) => {
       links: '/api/links/*',
       analytics: '/api/analytics/*',
       users: '/api/users/*',
+      admin: '/api/admin/*', // ADDED
       redirect: '/:shortCode'
     }
   });
@@ -61,12 +63,14 @@ app.get('/', (req, res) => {
       links: '/api/links',
       analytics: '/api/analytics',
       users: '/api/users',
+      admin: '/api/admin', // ADDED
       redirect: '/:shortCode'
     },
     examples: {
       'POST /api/auth/login': 'Login user',
       'POST /api/links': 'Create shortlink',
       'GET /api/analytics/dashboard': 'Get analytics',
+      'GET /api/admin/system-status': 'System monitoring', // ADDED
       'GET /abc123': 'Redirect shortlink'
     }
   });
@@ -77,6 +81,7 @@ app.use('/api/auth', authDomain.routes);
 app.use('/api/links', linksDomain.routes.main);
 app.use('/api/analytics', analyticsDomain.routes);
 app.use('/api/users', usersDomain.routes);
+app.use('/api/admin', adminRoutes); // ADDED
 
 // 3. REDIRECT ROUTES (CUỐI CÙNG - wildcard)
 app.use('/', linksDomain.routes.redirect);
@@ -93,6 +98,7 @@ app.use('*', (req, res) => {
       '/api/links/*', 
       '/api/analytics/*',
       '/api/users/*',
+      '/api/admin/*', // ADDED
       '/:shortCode (redirect)'
     ]
   });
