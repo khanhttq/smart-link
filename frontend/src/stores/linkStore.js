@@ -1,12 +1,7 @@
 // frontend/src/stores/linkStore.js
 import { create } from 'zustand';
-import axios from 'axios';
 import { message } from 'antd';
-
-// FIXED: Tạo axios instance với baseURL
-const apiClient = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000',
-});
+import apiClient from '../utils/apiClient'; // FIXED: Use shared API client
 
 const useLinkStore = create((set, get) => ({
   // State
@@ -25,7 +20,6 @@ const useLinkStore = create((set, get) => ({
       if (options.campaign) params.append('campaign', options.campaign);
       if (options.search) params.append('search', options.search);
 
-      // FIXED: Sử dụng apiClient thay vì axios
       const response = await apiClient.get(`/api/links?${params}`);
       const { links } = response.data.data;
       
@@ -41,7 +35,6 @@ const useLinkStore = create((set, get) => ({
 
   fetchStats: async () => {
     try {
-      // FIXED: Sử dụng apiClient thay vì axios
       const response = await apiClient.get('/api/links/stats');
       const stats = response.data.data;
       
@@ -49,7 +42,7 @@ const useLinkStore = create((set, get) => ({
       return { success: true, data: stats };
     } catch (error) {
       console.error('Error fetching stats:', error);
-      // FIXED: Set default stats thay vì để null
+      // Set default stats thay vì để null
       set({ 
         stats: { 
           totalLinks: 0, 
@@ -65,7 +58,6 @@ const useLinkStore = create((set, get) => ({
 
   createLink: async (linkData) => {
     try {
-      // FIXED: Sử dụng apiClient thay vì axios
       const response = await apiClient.post('/api/links', linkData);
       const newLink = response.data.data;
       
@@ -86,7 +78,6 @@ const useLinkStore = create((set, get) => ({
 
   updateLink: async (linkId, updateData) => {
     try {
-      // FIXED: Sử dụng apiClient thay vì axios
       const response = await apiClient.put(`/api/links/${linkId}`, updateData);
       const updatedLink = response.data.data;
       
@@ -106,7 +97,6 @@ const useLinkStore = create((set, get) => ({
 
   deleteLink: async (linkId) => {
     try {
-      // FIXED: Sử dụng apiClient thay vì axios
       await apiClient.delete(`/api/links/${linkId}`);
       
       // Remove from links array
@@ -127,7 +117,6 @@ const useLinkStore = create((set, get) => ({
   fetchLinkAnalytics: async (linkId, dateRange = '7d') => {
     set({ loading: true });
     try {
-      // FIXED: Sử dụng apiClient thay vì axios
       const response = await apiClient.get(`/api/links/${linkId}/analytics?range=${dateRange}`);
       const analytics = response.data.data;
       
@@ -145,7 +134,7 @@ const useLinkStore = create((set, get) => ({
   clear: () => {
     set({
       links: [],
-      stats: { totalLinks: 0, totalClicks: 0, avgClicks: 0 }, // FIXED: Default thay vì null
+      stats: { totalLinks: 0, totalClicks: 0, avgClicks: 0 },
       analytics: null,
       loading: false
     });

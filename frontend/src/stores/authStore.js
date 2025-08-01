@@ -1,11 +1,8 @@
 // frontend/src/stores/authStore.js
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import axios from 'axios';
 import { message } from 'antd';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000';
-axios.defaults.baseURL = API_URL;
+import apiClient, { setAuthToken } from '../utils/apiClient';
 
 const useAuthStore = create(
   persist(
@@ -17,11 +14,12 @@ const useAuthStore = create(
 
       login: async (email, password) => {
         try {
-          const response = await axios.post('/api/auth/login', { email, password });
+          const response = await apiClient.post('/api/auth/login', { email, password });
           const { user, tokens } = response.data.data;
           const token = tokens.accessToken;
 
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          // FIXED: Use shared API client token setter
+          setAuthToken(token);
           set({ user, token, isAuthenticated: true });
 
           message.success('Đăng nhập thành công!');
@@ -35,12 +33,13 @@ const useAuthStore = create(
 
       register: async (userData) => {
         try {
-          const response = await axios.post('/api/auth/register', userData);
-          console.log('Phản hồi API đăng ký:', response.data); // Log để kiểm tra
+          const response = await apiClient.post('/api/auth/register', userData);
+          console.log('Phản hồi API đăng ký:', response.data);
           const { user, tokens } = response.data.data;
           const token = tokens.accessToken;
 
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          // FIXED: Use shared API client token setter
+          setAuthToken(token);
           set({ user, token, isAuthenticated: true });
 
           message.success('Đăng ký thành công!');
@@ -55,12 +54,13 @@ const useAuthStore = create(
       logout: async () => {
         try {
           if (get().token) {
-            await axios.post('/api/auth/logout');
+            await apiClient.post('/api/auth/logout');
           }
         } catch (error) {
           console.log('Logout error:', error);
         } finally {
-          delete axios.defaults.headers.common['Authorization'];
+          // FIXED: Use shared API client token setter
+          setAuthToken(null);
           set({ user: null, token: null, isAuthenticated: false });
           message.success('Đăng xuất thành công!');
         }
@@ -74,19 +74,38 @@ const useAuthStore = create(
         }
 
         try {
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          console.log('Axios header set:', axios.defaults.headers.common['Authorization']);
-          const response = await axios.get('/api/auth/me');
+          // FIXED: Set token before making request
+          setAuthToken(token);
+          console.log('Checking auth with token:', token.substring(0, 20) + '...');
+          
+          const response = await apiClient.get('/api/auth/me');
           const user = response.data.data;
           set({ user, isAuthenticated: true, loading: false });
         } catch (error) {
-          delete axios.defaults.headers.common['Authorization'];
+          console.error('Auth check failed:', error);
+          // FIXED: Clear invalid token
+          setAuthToken(null);
           set({ user: null, token: null, isAuthenticated: false, loading: false });
         }
       },
 
       updateUser: (userData) => {
         set({ user: { ...get().user, ...userData } });
+      },
+
+      // FIXED: Initialize token on store hydration
+      _hasHydrated: false,
+      setHasHydrated: (hasHydrated) => {
+        set({ _hasHydrated: hasHydrated });
+        
+        // Set token when store is hydrated
+        if (hasHydrated) {
+          const token = get().token;
+          if (token) {
+            setAuthToken(token);
+            console.log('Token restored from storage');
+          }
+        }
       }
     }),
     {
@@ -95,7 +114,10 @@ const useAuthStore = create(
         token: state.token,
         user: state.user,
         isAuthenticated: state.isAuthenticated
-      })
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      }
     }
   )
 );
