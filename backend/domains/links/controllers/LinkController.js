@@ -5,13 +5,10 @@ class LinkController {
   // POST /api/links - Create new shortlink
   async create(req, res) {
     try {
-      const userId = req.user?.id; // From auth middleware (will add later)
+      const userId = req.user.id; // From auth middleware
       const linkData = req.body;
 
-      // For now, use a dummy user ID for testing
-      const testUserId = req.body.userId || 'test-user-id';
-
-      const link = await linkService.createLink(testUserId, linkData);
+      const link = await linkService.createLink(userId, linkData);
 
       res.status(201).json({
         success: true,
@@ -39,7 +36,7 @@ class LinkController {
   // GET /api/links - List user's links
   async list(req, res) {
     try {
-      const userId = req.user?.id || req.query.userId || 'test-user-id';
+      const userId = req.user.id; // From auth middleware
       const options = {
         limit: parseInt(req.query.limit) || 20,
         offset: parseInt(req.query.offset) || 0,
@@ -75,12 +72,22 @@ class LinkController {
   async get(req, res) {
     try {
       const { id } = req.params;
-      const link = await linkService.getLinkByShortCode(id); // Assume id is shortCode for now
+      const userId = req.user.id;
+      
+      const link = await linkService.getLinkByShortCode(id);
 
       if (!link) {
         return res.status(404).json({
           success: false,
           message: 'Link not found'
+        });
+      }
+
+      // Check ownership
+      if (link.userId !== userId && req.user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied'
         });
       }
 
@@ -102,7 +109,7 @@ class LinkController {
   async update(req, res) {
     try {
       const { id } = req.params;
-      const userId = req.user?.id || req.body.userId || 'test-user-id';
+      const userId = req.user.id;
       const updateData = req.body;
 
       const updatedLink = await linkService.updateLink(id, userId, updateData);
@@ -133,7 +140,7 @@ class LinkController {
   async delete(req, res) {
     try {
       const { id } = req.params;
-      const userId = req.user?.id || req.body.userId || 'test-user-id';
+      const userId = req.user.id;
 
       const deleted = await linkService.deleteLink(id, userId);
 
@@ -162,7 +169,7 @@ class LinkController {
   async analytics(req, res) {
     try {
       const { id } = req.params;
-      const userId = req.user?.id || req.query.userId || 'test-user-id';
+      const userId = req.user.id;
 
       const analytics = await linkService.getLinkAnalytics(id, userId);
 
@@ -183,7 +190,7 @@ class LinkController {
   // GET /api/links/stats - Get user stats
   async stats(req, res) {
     try {
-      const userId = req.user?.id || req.query.userId || 'test-user-id';
+      const userId = req.user.id;
 
       const stats = await linkService.getUserStats(userId);
 
