@@ -1,10 +1,10 @@
 // domains/analytics/routes/analyticsRoutes.js
 const express = require('express');
 const analyticsController = require('../controllers/AnalyticsController');
-const authMiddleware = require('../../auth/middleware/authMiddleware');
+const authMiddleware = require('../../auth/middleware/authMiddleware'); // Now imports instance
 const router = express.Router();
 
-// All analytics routes require authentication
+// All analytics routes require authentication - FIXED: Use instance method
 router.use(authMiddleware.verifyToken);
 
 // Dashboard and overview

@@ -1,12 +1,12 @@
 // domains/links/routes/linkRoutes.js
 const express = require('express');
 const linkController = require('../controllers/LinkController');
-const authMiddleware = require('../../auth/middleware/authMiddleware');
+const authMiddleware = require('../../auth/middleware/authMiddleware'); // Import instance
 
 const router = express.Router();
 
-// Apply auth middleware to all routes
-router.use(authMiddleware);
+// Apply auth middleware to all routes - Now uses instance method
+router.use(authMiddleware.verifyToken);
 
 // Routes - THỨ TỰ QUAN TRỌNG: specific routes trước, dynamic routes sau
 router.get('/stats', linkController.stats);         // GET /api/links/stats

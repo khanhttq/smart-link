@@ -3,7 +3,7 @@ const authService = require('../services/AuthService');
 
 class AuthMiddleware {
   // Verify JWT token
-  static async verifyToken(req, res, next) {
+  async verifyToken(req, res, next) {
     try {
       const token = req.headers.authorization?.replace('Bearer ', '');
       
@@ -31,7 +31,7 @@ class AuthMiddleware {
   }
 
   // Optional authentication (don't fail if no token)
-  static async optionalAuth(req, res, next) {
+  async optionalAuth(req, res, next) {
     try {
       const token = req.headers.authorization?.replace('Bearer ', '');
       
@@ -50,7 +50,7 @@ class AuthMiddleware {
   }
 
   // Role-based authorization
-  static requireRole(roles) {
+  requireRole(roles) {
     return (req, res, next) => {
       if (!req.user) {
         return res.status(401).json({
@@ -76,10 +76,15 @@ class AuthMiddleware {
   }
 
   // Admin only
-  static requireAdmin = AuthMiddleware.requireRole(['admin']);
+  get requireAdmin() {
+    return this.requireRole(['admin']);
+  }
 
   // User or higher
-  static requireUser = AuthMiddleware.requireRole(['user', 'editor', 'admin']);
+  get requireUser() {
+    return this.requireRole(['user', 'editor', 'admin']);
+  }
 }
 
-module.exports = AuthMiddleware;
+// FIXED: Export instance instead of class
+module.exports = new AuthMiddleware();

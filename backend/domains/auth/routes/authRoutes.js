@@ -2,7 +2,7 @@
 const express = require('express');
 const authController = require('../controllers/AuthController');
 const oauthController = require('../controllers/OAuthController');
-const authMiddleware = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/authMiddleware'); // Now imports instance
 const router = express.Router();
 
 // Authentication routes
@@ -10,7 +10,7 @@ router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.post('/refresh', authController.refresh);
 
-// Protected routes
+// Protected routes - FIXED: Use instance methods
 router.post('/logout', authMiddleware.verifyToken, authController.logout);
 router.get('/me', authMiddleware.verifyToken, authController.getProfile);
 router.post('/logout-all', authMiddleware.verifyToken, authController.logoutAll);
