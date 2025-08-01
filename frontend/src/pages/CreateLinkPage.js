@@ -17,11 +17,44 @@ import {
   CopyOutlined 
 } from '@ant-design/icons';
 import axios from 'axios';
+import { useAuthStore } from '../stores/authStore';
+
+const apiClient = axios.create({
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000',
+});
+
+apiClient.interceptors.response.use(
+  response => response,
+  async error => {
+    if (error.response?.status === 401 && !error.config._retry) {
+      error.config._retry = true;
+      try {
+        const refreshResponse = await apiClient.post('/api/auth/refresh', {
+          refreshToken: localStorage.getItem('refreshToken')
+        });
+        const newToken = refreshResponse.data.data.tokens.accessToken;
+        useAuthStore.setState({ token: newToken });
+        localStorage.setItem('auth-storage', JSON.stringify({
+          state: { token: newToken, user: useAuthStore.getState().user, isAuthenticated: true },
+          version: 0
+        }));
+        error.config.headers.Authorization = `Bearer ${newToken}`;
+        return apiClient(error.config);
+      } catch (refreshError) {
+        message.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
+        useAuthStore.getState().logout();
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const CreateLinkPage = () => {
+  const { token, isAuthenticated } = useAuthStore();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -29,21 +62,33 @@ const CreateLinkPage = () => {
 
   const handleSubmit = async (values) => {
     setLoading(true);
-
     try {
-      const response = await axios.post('/api/links', {
+      if (!isAuthenticated || !token) {
+        message.error('Vui lòng đăng nhập trước!');
+        navigate('/login');
+        return;
+      }
+
+      console.log('Token gửi đi:', token); // Log để kiểm tra
+
+      const response = await apiClient.post('/api/links', {
         originalUrl: values.originalUrl,
         shortCode: values.customShortCode || undefined,
         title: values.title || undefined,
         campaign: values.campaign || undefined,
         description: values.description || undefined
+      }, {
+        headers: { Authorization: `Bearer ${token.trim()}` },
+        timeout: 5000
       });
 
-      const { shortCode, shortUrl } = response.data.data;
+      const data = response.data?.data;
+      if (!data?.shortCode || !data?.shortUrl) {
+        throw new Error('Định dạng phản hồi không hợp lệ');
+      }
+      const { shortCode, shortUrl } = data;
       
       message.success('Liên kết đã được tạo thành công!');
-      
-      // Redirect to dashboard with success message
       navigate('/dashboard', { 
         state: { 
           newLink: { shortCode, shortUrl, originalUrl: values.originalUrl }
@@ -75,13 +120,12 @@ const CreateLinkPage = () => {
     message.success('Đã sao chép liên kết!');
   };
 
-  const baseUrl = window.location.origin;
+  const baseUrl = process.env.REACT_APP_API_URL || window.location.origin;
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
       <Card>
         <div style={{ width: '100%' }}>
-          {/* Header */}
           <div style={{ textAlign: 'center', marginBottom: 32 }}>
             <ThunderboltOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
             <Title level={2} style={{ margin: 0 }}>Tạo Liên Kết Rút Gọn</Title>
@@ -92,7 +136,6 @@ const CreateLinkPage = () => {
 
           <Divider />
 
-          {/* Form */}
           <Form
             form={form}
             layout="vertical"
@@ -160,7 +203,6 @@ const CreateLinkPage = () => {
               />
             </Form.Item>
 
-            {/* Action Buttons */}
             <Form.Item>
               <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
                 <Button 
@@ -186,7 +228,6 @@ const CreateLinkPage = () => {
         </div>
       </Card>
 
-      {/* Preview Card */}
       {previewData && (
         <Card 
           title={<><LinkOutlined /> Xem trước liên kết</>}
@@ -229,7 +270,6 @@ const CreateLinkPage = () => {
         </Card>
       )}
 
-      {/* Tips */}
       <Alert
         message="💡 Mẹo sử dụng"
         description={

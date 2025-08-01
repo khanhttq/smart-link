@@ -1,137 +1,245 @@
-// test-api-endpoints.js
-const app = require('./app');
-const db = require('./models');
-const cacheService = require('./core/cache/CacheService');
+const axios = require('axios');
+require('dotenv').config();
 
-async function testAPIEndpoints() {
-  console.log('🧪 Testing API endpoints with real data...\n');
+const BASE_URL = process.env.BASE_URL || 'http://localhost:4000';
+const API_ROUTES = {
+  HEALTH: `${BASE_URL}/health`,
+  AUTH: {
+    REGISTER: `${BASE_URL}/api/auth/register`,
+    LOGIN: `${BASE_URL}/api/auth/login`,
+  },
+  LINKS: {
+    CREATE: `${BASE_URL}/api/links`,
+    LIST: `${BASE_URL}/api/links`,
+    UPDATE: (id) => `${BASE_URL}/api/links/${id}`,
+    DELETE: (id) => `${BASE_URL}/api/links/${id}`,
+  },
+  ANALYTICS: {
+    STATS: `${BASE_URL}/api/analytics/stats`,
+  },
+  USERS: {
+    PROFILE: `${BASE_URL}/api/users/profile`,
+    UPDATE: `${BASE_URL}/api/users/profile`,
+  },
+  REDIRECT: (shortCode) => `${BASE_URL}/${shortCode}`,
+};
 
+const testEmail = `test_${Date.now()}@example.com`;
+const testPassword = 'Test@12345678';
+const testName = 'Test User';
+const testLink = 'https://example.com';
+const testShortCode = `test${Date.now().toString().slice(-4)}`;
+
+const testConfig = {
+  timeout: 5000,
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  },
+};
+
+const runTests = async () => {
+  console.log('🧪 Starting Shortlink API Test Suite...\n');
+  let token = null;
+  let linkId = null;
+  let testPassed = 0;
+  let testFailed = 0;
+
+  // Helper function to track test results
+  const trackResult = (passed, message) => {
+    console.log(passed ? `✅ ${message}` : `❌ ${message}`);
+    passed ? testPassed++ : testFailed++;
+  };
+
+  // Test 1: Health Check
+  console.log('=== Test 1: Health Check ===');
   try {
-    // Initialize
-    await cacheService.initialize();
-    await db.sequelize.sync({ force: true });
-
-    // Start test server
-    const server = app.listen(4003, async () => {
-      console.log('🌐 Test server started on port 4003\n');
-
-      // Create a test user first
-      const testUser = await db.User.create({
-        email: 'apitest@example.com',
-        name: 'API Test User',
-        password: 'Password123!'
-      });
-      console.log('✅ Test user created:', testUser.id);
-
-      // Test API endpoints
-      const tests = [
-        {
-          name: 'Create Link',
-          method: 'POST',
-          url: '/api/links',
-          body: {
-            userId: testUser.id,
-            originalUrl: 'https://google.com',
-            title: 'Google Search',
-            campaign: 'api-test'
-          }
-        },
-        {
-          name: 'List Links',
-          method: 'GET',
-          url: `/api/links?userId=${testUser.id}`
-        },
-        {
-          name: 'Get Stats',
-          method: 'GET',
-          url: `/api/links/stats?userId=${testUser.id}`
-        },
-        {
-          name: 'Create Custom Link',
-          method: 'POST',
-          url: '/api/links',
-          body: {
-            userId: testUser.id,
-            originalUrl: 'https://github.com',
-            customCode: 'gh123',
-            title: 'GitHub'
-          }
-        }
-      ];
-
-      let createdLink = null;
-
-      for (const test of tests) {
-        try {
-          console.log(`🔍 Testing: ${test.name}`);
-          
-          const options = {
-            method: test.method,
-            headers: { 'Content-Type': 'application/json' }
-          };
-
-          if (test.body) {
-            options.body = JSON.stringify(test.body);
-          }
-
-          const response = await fetch(`http://localhost:4003${test.url}`, options);
-          const data = await response.json();
-
-          if (response.ok) {
-            console.log(`✅ ${test.name}: Success`);
-            if (test.name === 'Create Link' && data.data) {
-              createdLink = data.data;
-              console.log(`   Short URL: http://localhost:4003/${createdLink.shortCode}`);
-            }
-          } else {
-            console.log(`❌ ${test.name}: ${data.message || data.error}`);
-          }
-        } catch (error) {
-          console.log(`❌ ${test.name}: ${error.message}`);
-        }
-      }
-
-      // Test redirect functionality
-      if (createdLink) {
-        console.log('\n🔗 Testing redirect functionality...');
-        try {
-          const redirectResponse = await fetch(`http://localhost:4003/${createdLink.shortCode}`, {
-            redirect: 'manual' // Don't follow redirects
-          });
-          
-          if (redirectResponse.status === 302) {
-            const location = redirectResponse.headers.get('location');
-            console.log(`✅ Redirect working: ${createdLink.shortCode} -> ${location}`);
-          } else {
-            console.log(`❌ Redirect failed: ${redirectResponse.status}`);
-          }
-        } catch (error) {
-          console.log(`❌ Redirect test error: ${error.message}`);
-        }
-
-        // Test preview functionality
-        console.log('\n👁️ Testing preview functionality...');
-        try {
-          const previewResponse = await fetch(`http://localhost:4003/preview/${createdLink.shortCode}`);
-          const previewData = await previewResponse.json();
-          
-          if (previewResponse.ok) {
-            console.log(`✅ Preview working: ${previewData.data.originalUrl}`);
-          } else {
-            console.log(`❌ Preview failed: ${previewData.message}`);
-          }
-        } catch (error) {
-          console.log(`❌ Preview test error: ${error.message}`);
-        }
-      }
-
-      console.log('\n🎉 API endpoints testing completed!');
-      server.close();
-    });
-
-  } catch (error) {
-    console.error('❌ API test error:', error.message);
+    const res = await axios.get(API_ROUTES.HEALTH, { timeout: testConfig.timeout });
+    trackResult(res.status === 200, 'Health check passed');
+  } catch (err) {
+    trackResult(false, `Health check error: ${err.message}`);
   }
-}
 
-testAPIEndpoints();
+  // Test 2: Register New User
+  console.log('\n=== Test 2: Register New User ===');
+  try {
+    const res = await axios.post(
+      API_ROUTES.AUTH.REGISTER,
+      { email: testEmail, password: testPassword, name: testName },
+      { timeout: testConfig.timeout, headers: testConfig.headers }
+    );
+    trackResult(res.status === 201 && res.data?.data?.tokens?.accessToken, 'Registration successful');
+    token = res.data?.data?.tokens?.accessToken;
+  } catch (err) {
+    trackResult(false, `Registration error: ${err.response?.data?.message || err.message}`);
+  }
+
+  // Test 3: Login
+  console.log('\n=== Test 3: Login ===');
+  try {
+    const res = await axios.post(
+      API_ROUTES.AUTH.LOGIN,
+      { email: testEmail, password: testPassword },
+      { timeout: testConfig.timeout, headers: testConfig.headers }
+    );
+    trackResult(res.status === 200 && res.data?.data?.tokens?.accessToken, 'Login successful');
+    token = res.data?.data?.tokens?.accessToken;
+  } catch (err) {
+    trackResult(false, `Login error: ${err.response?.data?.message || err.message}`);
+  }
+
+  // Test 4: Create Short Link
+  console.log('\n=== Test 4: Create Short Link ===');
+  if (token) {
+    try {
+      const res = await axios.post(
+        API_ROUTES.LINKS.CREATE,
+        { originalUrl: testLink, shortCode: testShortCode },
+        {
+          timeout: testConfig.timeout,
+          headers: { ...testConfig.headers, Authorization: `Bearer ${token}` },
+        }
+      );
+      trackResult(res.status === 201 && res.data?.data?.id, 'Short link creation successful');
+      linkId = res.data?.data?.id;
+    } catch (err) {
+      trackResult(false, `Short link creation error: ${err.response?.data?.message || err.message}`);
+    }
+  } else {
+    trackResult(false, 'Skipping short link creation: No token available');
+  }
+
+  // Test 5: List Links
+  console.log('\n=== Test 5: List Links ===');
+  if (token) {
+    try {
+      const res = await axios.get(API_ROUTES.LINKS.LIST, {
+        timeout: testConfig.timeout,
+        headers: { ...testConfig.headers, Authorization: `Bearer ${token}` },
+      });
+      trackResult(res.status === 200, 'Link listing successful');
+    } catch (err) {
+      trackResult(false, `Link listing error: ${err.response?.data?.message || err.message}`);
+    }
+  } else {
+    trackResult(false, 'Skipping link listing: No token available');
+  }
+
+  // Test 6: Update Link
+  console.log('\n=== Test 6: Update Link ===');
+  if (token && linkId) {
+    try {
+      const res = await axios.put(
+        API_ROUTES.LINKS.UPDATE(linkId),
+        { originalUrl: 'https://updated-example.com' },
+        {
+          timeout: testConfig.timeout,
+          headers: { ...testConfig.headers, Authorization: `Bearer ${token}` },
+        }
+      );
+      trackResult(res.status === 200, 'Link update successful');
+    } catch (err) {
+      trackResult(false, `Link update error: ${err.response?.data?.message || err.message}`);
+    }
+  } else {
+    trackResult(false, 'Skipping link update: No token or link ID available');
+  }
+
+  // Test 7: Redirect Short Link
+  console.log('\n=== Test 7: Redirect Short Link ===');
+  try {
+    const res = await axios.get(API_ROUTES.REDIRECT(testShortCode), {
+      timeout: testConfig.timeout,
+      maxRedirects: 0,
+      validateStatus: (status) => status === 302,
+    });
+    trackResult(res.status === 302, 'Short link redirect successful');
+  } catch (err) {
+    trackResult(false, `Short link redirect error: ${err.response?.data?.message || err.message}`);
+  }
+
+  // Test 8: Analytics Stats
+  console.log('\n=== Test 8: Analytics Stats ===');
+  if (token) {
+    try {
+      const res = await axios.get(API_ROUTES.ANALYTICS.STATS, {
+        timeout: testConfig.timeout,
+        headers: { ...testConfig.headers, Authorization: `Bearer ${token}` },
+      });
+      trackResult(res.status === 200, 'Analytics stats retrieval successful');
+    } catch (err) {
+      trackResult(false, `Analytics stats error: ${err.response?.data?.message || err.message}`);
+    }
+  } else {
+    trackResult(false, 'Skipping analytics stats: No token available');
+  }
+
+  // Test 9: User Profile
+  console.log('\n=== Test 9: User Profile ===');
+  if (token) {
+    try {
+      const res = await axios.get(API_ROUTES.USERS.PROFILE, {
+        timeout: testConfig.timeout,
+        headers: { ...testConfig.headers, Authorization: `Bearer ${token}` },
+      });
+      trackResult(res.status === 200, 'User profile retrieval successful');
+    } catch (err) {
+      trackResult(false, `User profile error: ${err.response?.data?.message || err.message}`);
+    }
+  } else {
+    trackResult(false, 'Skipping user profile: No token available');
+  }
+
+  // Test 10: Update User Profile
+  console.log('\n=== Test 10: Update User Profile ===');
+  if (token) {
+    try {
+      const res = await axios.put(
+        API_ROUTES.USERS.UPDATE,
+        { name: 'Updated Test User' },
+        {
+          timeout: testConfig.timeout,
+          headers: { ...testConfig.headers, Authorization: `Bearer ${token}` },
+        }
+      );
+      trackResult(res.status === 200, 'User profile update successful');
+    } catch (err) {
+      trackResult(false, `User profile update error: ${err.response?.data?.message || err.message}`);
+    }
+  } else {
+    trackResult(false, 'Skipping user profile update: No token available');
+  }
+
+  // Test 11: Delete Link
+  console.log('\n=== Test 11: Delete Link ===');
+  if (token && linkId) {
+    try {
+      const res = await axios.delete(API_ROUTES.LINKS.DELETE(linkId), {
+        timeout: testConfig.timeout,
+        headers: { ...testConfig.headers, Authorization: `Bearer ${token}` },
+      });
+      trackResult(res.status === 204, 'Link deletion successful');
+    } catch (err) {
+      trackResult(false, `Link deletion error: ${err.response?.data?.message || err.message}`);
+    }
+  } else {
+    trackResult(false, 'Skipping link deletion: No token or link ID available');
+  }
+
+  // Test Summary
+  console.log('\n=== Test Summary ===');
+  console.log(`✅ Tests Passed: ${testPassed}`);
+  console.log(`❌ Tests Failed: ${testFailed}`);
+  console.log(`🎯 Total Tests: ${testPassed + testFailed}`);
+  console.log(`📈 Success Rate: ${((testPassed / (testPassed + testFailed)) * 100).toFixed(2)}%`);
+};
+
+(async () => {
+  try {
+    await runTests();
+    process.exit(0);
+  } catch (err) {
+    console.error('❌ Test suite failed:', err.message);
+    process.exit(1);
+  }
+})();

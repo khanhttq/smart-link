@@ -5,37 +5,24 @@ import axios from 'axios';
 import { message } from 'antd';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000';
-
-// Configure axios defaults
 axios.defaults.baseURL = API_URL;
 
 const useAuthStore = create(
   persist(
     (set, get) => ({
-      // State
       user: null,
       token: null,
       isAuthenticated: false,
       loading: true,
 
-      // Actions
       login: async (email, password) => {
         try {
-          const response = await axios.post('/api/auth/login', {
-            email,
-            password
-          });
+          const response = await axios.post('/api/auth/login', { email, password });
+          const { user, tokens } = response.data.data;
+          const token = tokens.accessToken;
 
-          const { user, token } = response.data.data;
-          
-          // Set authorization header
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          
-          set({
-            user,
-            token,
-            isAuthenticated: true
-          });
+          set({ user, token, isAuthenticated: true });
 
           message.success('Đăng nhập thành công!');
           return { success: true };
@@ -49,17 +36,12 @@ const useAuthStore = create(
       register: async (userData) => {
         try {
           const response = await axios.post('/api/auth/register', userData);
-          
-          const { user, token } = response.data.data;
-          
-          // Set authorization header
+          console.log('Phản hồi API đăng ký:', response.data); // Log để kiểm tra
+          const { user, tokens } = response.data.data;
+          const token = tokens.accessToken;
+
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          
-          set({
-            user,
-            token,
-            isAuthenticated: true
-          });
+          set({ user, token, isAuthenticated: true });
 
           message.success('Đăng ký thành công!');
           return { success: true };
@@ -78,55 +60,31 @@ const useAuthStore = create(
         } catch (error) {
           console.log('Logout error:', error);
         } finally {
-          // Clear state and axios header
           delete axios.defaults.headers.common['Authorization'];
-          
-          set({
-            user: null,
-            token: null,
-            isAuthenticated: false
-          });
-
+          set({ user: null, token: null, isAuthenticated: false });
           message.success('Đăng xuất thành công!');
         }
       },
 
       checkAuth: async () => {
         const { token } = get();
-        
         if (!token) {
           set({ loading: false });
           return;
         }
 
         try {
-          // Set header if token exists
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           console.log('Axios header set:', axios.defaults.headers.common['Authorization']);
-          
-          // Verify token with backend
           const response = await axios.get('/api/auth/me');
           const user = response.data.data;
-
-          set({
-            user,
-            isAuthenticated: true,
-            loading: false
-          });
+          set({ user, isAuthenticated: true, loading: false });
         } catch (error) {
-          // Token invalid, clear auth state
           delete axios.defaults.headers.common['Authorization'];
-          
-          set({
-            user: null,
-            token: null,
-            isAuthenticated: false,
-            loading: false
-          });
+          set({ user: null, token: null, isAuthenticated: false, loading: false });
         }
       },
 
-      // Update user profile
       updateUser: (userData) => {
         set({ user: { ...get().user, ...userData } });
       }
