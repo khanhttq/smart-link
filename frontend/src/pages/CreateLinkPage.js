@@ -120,7 +120,8 @@ const CreateLinkPage = () => {
     message.success('Đã sao chép liên kết!');
   };
 
-  const baseUrl = process.env.REACT_APP_API_URL || window.location.origin;
+  // FIXED: Sử dụng API URL thay vì window.location.origin
+  const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000';
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>

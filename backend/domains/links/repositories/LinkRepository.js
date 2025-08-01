@@ -111,39 +111,56 @@ class LinkRepository {
       await link.destroy();
     }
     
-    return !!link;
+    return true;
   }
 
-  // Increment click count
-  async incrementClickCount(id) {
-    return await Link.increment('clickCount', {
-      where: { id }
-    });
+  // Increment click count - FIXED METHOD
+  async incrementClickCount(linkId) {
+    try {
+      await Link.increment('clickCount', {
+        where: { id: linkId }
+      });
+      return true;
+    } catch (error) {
+      console.error('Error incrementing click count:', error);
+      return false;
+    }
   }
 
-  // Get link statistics
+  // Get user stats - FIXED METHOD
   async getStats(userId) {
-    const cacheKey = `user:${userId}:stats`;
-    
-    return await cacheService.getOrSet(cacheKey, async () => {
+    try {
       const stats = await Link.findAll({
         where: { userId },
         attributes: [
           [sequelize.fn('COUNT', sequelize.col('id')), 'totalLinks'],
-          [sequelize.fn('SUM', sequelize.col('click_count')), 'totalClicks'],
-          [sequelize.fn('COUNT', sequelize.literal('CASE WHEN is_active = true THEN 1 END')), 'activeLinks'],
-          [sequelize.fn('COUNT', sequelize.literal('CASE WHEN campaign IS NOT NULL THEN 1 END')), 'campaignLinks']
+          [sequelize.fn('SUM', sequelize.col('clickCount')), 'totalClicks'],
+          [sequelize.fn('AVG', sequelize.col('clickCount')), 'avgClicks'],
+          [sequelize.fn('COUNT', sequelize.literal('CASE WHEN "isActive" = true THEN 1 END')), 'activeLinks'],
+          [sequelize.fn('COUNT', sequelize.literal('CASE WHEN "campaign" IS NOT NULL THEN 1 END')), 'campaignLinks']
         ],
         raw: true
       });
+
+      const result = stats[0] || {};
       
-      return stats[0] || {
+      return {
+        totalLinks: parseInt(result.totalLinks) || 0,
+        totalClicks: parseInt(result.totalClicks) || 0,
+        avgClicks: parseFloat(result.avgClicks) || 0,
+        activeLinks: parseInt(result.activeLinks) || 0,
+        campaignLinks: parseInt(result.campaignLinks) || 0
+      };
+    } catch (error) {
+      console.error('Error getting user stats:', error);
+      return {
         totalLinks: 0,
         totalClicks: 0,
+        avgClicks: 0,
         activeLinks: 0,
         campaignLinks: 0
       };
-    }, 300); // Cache for 5 minutes
+    }
   }
 }
 

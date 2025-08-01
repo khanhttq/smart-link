@@ -3,6 +3,11 @@ import { create } from 'zustand';
 import axios from 'axios';
 import { message } from 'antd';
 
+// FIXED: Tạo axios instance với baseURL
+const apiClient = axios.create({
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000',
+});
+
 const useLinkStore = create((set, get) => ({
   // State
   links: [],
@@ -20,7 +25,8 @@ const useLinkStore = create((set, get) => ({
       if (options.campaign) params.append('campaign', options.campaign);
       if (options.search) params.append('search', options.search);
 
-      const response = await axios.get(`/api/links?${params}`);
+      // FIXED: Sử dụng apiClient thay vì axios
+      const response = await apiClient.get(`/api/links?${params}`);
       const { links } = response.data.data;
       
       set({ links, loading: false });
@@ -35,20 +41,32 @@ const useLinkStore = create((set, get) => ({
 
   fetchStats: async () => {
     try {
-      const response = await axios.get('/api/links/stats');
+      // FIXED: Sử dụng apiClient thay vì axios
+      const response = await apiClient.get('/api/links/stats');
       const stats = response.data.data;
       
       set({ stats });
       return { success: true, data: stats };
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // FIXED: Set default stats thay vì để null
+      set({ 
+        stats: { 
+          totalLinks: 0, 
+          totalClicks: 0, 
+          avgClicks: 0,
+          activeLinks: 0,
+          campaignLinks: 0 
+        } 
+      });
       return { success: false, error: error.response?.data?.message };
     }
   },
 
   createLink: async (linkData) => {
     try {
-      const response = await axios.post('/api/links', linkData);
+      // FIXED: Sử dụng apiClient thay vì axios
+      const response = await apiClient.post('/api/links', linkData);
       const newLink = response.data.data;
       
       // Add to links array
@@ -68,7 +86,8 @@ const useLinkStore = create((set, get) => ({
 
   updateLink: async (linkId, updateData) => {
     try {
-      const response = await axios.put(`/api/links/${linkId}`, updateData);
+      // FIXED: Sử dụng apiClient thay vì axios
+      const response = await apiClient.put(`/api/links/${linkId}`, updateData);
       const updatedLink = response.data.data;
       
       // Update in links array
@@ -87,7 +106,8 @@ const useLinkStore = create((set, get) => ({
 
   deleteLink: async (linkId) => {
     try {
-      await axios.delete(`/api/links/${linkId}`);
+      // FIXED: Sử dụng apiClient thay vì axios
+      await apiClient.delete(`/api/links/${linkId}`);
       
       // Remove from links array
       set(state => ({
@@ -107,7 +127,8 @@ const useLinkStore = create((set, get) => ({
   fetchLinkAnalytics: async (linkId, dateRange = '7d') => {
     set({ loading: true });
     try {
-      const response = await axios.get(`/api/links/${linkId}/analytics?range=${dateRange}`);
+      // FIXED: Sử dụng apiClient thay vì axios
+      const response = await apiClient.get(`/api/links/${linkId}/analytics?range=${dateRange}`);
       const analytics = response.data.data;
       
       set({ analytics, loading: false });
@@ -124,7 +145,7 @@ const useLinkStore = create((set, get) => ({
   clear: () => {
     set({
       links: [],
-      stats: null,
+      stats: { totalLinks: 0, totalClicks: 0, avgClicks: 0 }, // FIXED: Default thay vì null
       analytics: null,
       loading: false
     });

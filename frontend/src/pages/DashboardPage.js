@@ -79,6 +79,12 @@ const DashboardPage = () => {
     message.success('Đã sao chép vào clipboard!');
   };
 
+  // FIXED: Sử dụng API URL thay vì window.location.origin
+  const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+
+  // FIXED: Safe access to stats với default values
+  const safeStats = stats || { totalLinks: 0, totalClicks: 0, avgClicks: 0 };
+
   // Table columns
   const columns = [
     {
@@ -96,14 +102,14 @@ const DashboardPage = () => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Text code style={{ color: '#1890ff' }}>
-              {window.location.origin}/{record.shortCode}
+              {baseUrl}/{record.shortCode}
             </Text>
             <Button 
               type="link" 
               icon={<CopyOutlined />} 
               size="small"
               style={{ padding: 0, height: 'auto' }}
-              onClick={() => copyToClipboard(`${window.location.origin}/${record.shortCode}`)}
+              onClick={() => copyToClipboard(`${baseUrl}/${record.shortCode}`)}
             />
           </div>
         </div>
@@ -162,8 +168,8 @@ const DashboardPage = () => {
           
           <Tooltip title="Xóa">
             <Popconfirm
-              title="Xóa liên kết"
-              description={`Bạn có chắc muốn xóa liên kết "${record.shortCode}"?`}
+              title="Bạn có chắc chắn muốn xóa liên kết này?"
+              description="Hành động này không thể hoàn tác!"
               onConfirm={() => handleDelete(record.id, record.shortCode)}
               okText="Xóa"
               cancelText="Hủy"
@@ -182,23 +188,33 @@ const DashboardPage = () => {
     },
   ];
 
+  const renderEmptyState = () => (
+    <Empty
+      image={Empty.PRESENTED_IMAGE_SIMPLE}
+      description="Chưa có liên kết nào"
+      style={{ padding: '60px 0' }}
+    >
+      <Link to="/create">
+        <Button type="primary" icon={<PlusOutlined />}>
+          Tạo liên kết đầu tiên
+        </Button>
+      </Link>
+    </Empty>
+  );
+
   return (
-    <div style={{ padding: '0 24px' }}>
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+      <Space direction="vertical" size={24} style={{ width: '100%' }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <Title level={2} style={{ margin: 0 }}>Dashboard</Title>
-            <Text type="secondary" style={{ fontSize: 16 }}>
-              Chào mừng trở lại, {user?.name}! 👋
-            </Text>
+            <Title level={2} style={{ margin: 0 }}>
+              Dashboard
+            </Title>
+            <Text type="secondary">Chào mừng trở lại, {user?.name || 'User'}!</Text>
           </div>
           <Link to="/create">
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />} 
-              size="large"
-            >
+            <Button type="primary" icon={<PlusOutlined />} size="large">
               Tạo Liên Kết Mới
             </Button>
           </Link>
@@ -206,42 +222,33 @@ const DashboardPage = () => {
 
         {/* Stats Cards */}
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={8}>
             <Card>
               <Statistic
-                title="Tổng liên kết"
-                value={stats?.totalLinks || 0}
-                prefix={<LinkOutlined style={{ color: '#1890ff' }} />}
+                title="Tổng Liên Kết"
+                value={safeStats.totalLinks || 0}
+                prefix={<LinkOutlined />}
                 valueStyle={{ color: '#1890ff' }}
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={8}>
             <Card>
               <Statistic
-                title="Tổng clicks"
-                value={stats?.totalClicks || 0}
-                prefix={<EyeOutlined style={{ color: '#52c41a' }} />}
+                title="Tổng Clicks"
+                value={safeStats.totalClicks || 0}
+                prefix={<EyeOutlined />}
                 valueStyle={{ color: '#52c41a' }}
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={8}>
             <Card>
               <Statistic
-                title="Clicks hôm nay"
-                value={stats?.todayClicks || 0}
-                prefix={<BarChartOutlined style={{ color: '#722ed1' }} />}
-                valueStyle={{ color: '#722ed1' }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card>
-              <Statistic
-                title="Clicks/Link TB"
-                value={stats?.totalLinks ? Math.round((stats.totalClicks || 0) / stats.totalLinks) : 0}
-                prefix={<LinkOutlined style={{ color: '#fa8c16' }} />}
+                title="Clicks Trung Bình"
+                value={safeStats.avgClicks || 0}
+                precision={1}
+                prefix={<BarChartOutlined />}
                 valueStyle={{ color: '#fa8c16' }}
               />
             </Card>
@@ -251,120 +258,59 @@ const DashboardPage = () => {
         {/* Filters */}
         <Card>
           <Row gutter={[16, 16]} align="middle">
-            <Col xs={24} md={16}>
+            <Col xs={24} sm={12} md={8}>
               <Search
                 placeholder="Tìm kiếm liên kết..."
+                allowClear
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                allowClear
-                size="large"
                 prefix={<SearchOutlined />}
               />
             </Col>
-            <Col xs={24} md={8}>
+            <Col xs={24} sm={12} md={8}>
               <Select
-                placeholder="Chọn chiến dịch"
+                placeholder="Lọc theo chiến dịch"
+                allowClear
+                style={{ width: '100%' }}
                 value={selectedCampaign}
                 onChange={setSelectedCampaign}
-                allowClear
-                size="large"
-                style={{ width: '100%' }}
               >
                 {campaigns.map(campaign => (
-                  <Option key={campaign} value={campaign}>{campaign}</Option>
+                  <Option key={campaign} value={campaign}>
+                    {campaign}
+                  </Option>
                 ))}
               </Select>
+            </Col>
+            <Col xs={24} md={8}>
+              <div style={{ textAlign: 'right' }}>
+                <Text type="secondary">
+                  Hiển thị {filteredLinks.length} / {links.length} liên kết
+                </Text>
+              </div>
             </Col>
           </Row>
         </Card>
 
         {/* Links Table */}
-        <Card 
-          title={
-            <Space>
-              <LinkOutlined />
-              <span>Danh sách liên kết ({filteredLinks.length})</span>
-            </Space>
-          }
-        >
+        <Card>
           <Table
             columns={columns}
             dataSource={filteredLinks}
-            rowKey="id"
             loading={loading}
+            rowKey="id"
+            locale={{
+              emptyText: renderEmptyState()
+            }}
             pagination={{
+              pageSize: 10,
               showSizeChanger: true,
               showQuickJumper: true,
               showTotal: (total, range) => 
                 `${range[0]}-${range[1]} của ${total} liên kết`,
-              pageSizeOptions: ['10', '20', '50'],
-              defaultPageSize: 10
             }}
-            locale={{
-              emptyText: (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
-                    <div>
-                      <p>Chưa có liên kết nào</p>
-                      <Link to="/create">
-                        <Button type="primary" icon={<PlusOutlined />}>
-                          Tạo liên kết đầu tiên
-                        </Button>
-                      </Link>
-                    </div>
-                  }
-                />
-              )
-            }}
+            scroll={{ x: 800 }}
           />
-        </Card>
-
-        {/* Quick Actions */}
-        <Card title="Hành động nhanh">
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={8}>
-              <Link to="/create">
-                <Card 
-                  hoverable 
-                  style={{ textAlign: 'center' }}
-                  bodyStyle={{ padding: '24px 16px' }}
-                >
-                  <PlusOutlined style={{ fontSize: 32, color: '#1890ff', marginBottom: 8 }} />
-                  <div style={{ fontWeight: 500 }}>Tạo liên kết mới</div>
-                  <Text type="secondary">Rút gọn URL mới</Text>
-                </Card>
-              </Link>
-            </Col>
-            
-            <Col xs={24} sm={8}>
-              <Link to="/analytics">
-                <Card 
-                  hoverable 
-                  style={{ textAlign: 'center' }}
-                  bodyStyle={{ padding: '24px 16px' }}
-                >
-                  <BarChartOutlined style={{ fontSize: 32, color: '#52c41a', marginBottom: 8 }} />
-                  <div style={{ fontWeight: 500 }}>Xem Analytics</div>
-                  <Text type="secondary">Phân tích chi tiết</Text>
-                </Card>
-              </Link>
-            </Col>
-            
-            <Col xs={24} sm={8}>
-              <Link to="/profile">
-                <Card 
-                  hoverable 
-                  style={{ textAlign: 'center' }}
-                  bodyStyle={{ padding: '24px 16px' }}
-                >
-                  <EyeOutlined style={{ fontSize: 32, color: '#722ed1', marginBottom: 8 }} />
-                  <div style={{ fontWeight: 500 }}>Cài đặt tài khoản</div>
-                  <Text type="secondary">Quản lý hồ sơ</Text>
-                </Card>
-              </Link>
-            </Col>
-          </Row>
         </Card>
       </Space>
     </div>
