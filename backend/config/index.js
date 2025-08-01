@@ -9,9 +9,9 @@ module.exports = {
   database: {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
-    name: process.env.DB_NAME || 'shortlink',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'password',
+    name: process.env.DB_NAME || 'shortlink_db',
+    user: process.env.DB_USER || 'shortlink_user',
+    password: process.env.DB_PASSWORD || 'shortlink_pass',
     dialect: 'postgres',
     pool: {
       max: 10,
