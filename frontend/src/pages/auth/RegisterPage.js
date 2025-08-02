@@ -1,4 +1,4 @@
-// frontend/src/pages/auth/RegisterPage.js
+// frontend/src/pages/auth/RegisterPage.js - FIXED
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 

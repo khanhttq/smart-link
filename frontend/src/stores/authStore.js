@@ -1,61 +1,44 @@
-// frontend/src/stores/authStore.js - SMART VERSION
+// frontend/src/stores/authStore.js - COMPLETE VERSION
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import axios from 'axios';
+import apiClient from '../utils/apiClient'; // Use shared apiClient
 import { message, Modal } from 'antd';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+// ===== REMOVE DUPLICATE AXIOS SETUP - Use shared apiClient =====
 
-// Create axios instance with proper error handling
-const apiClient = axios.create({
-  baseURL: API_URL,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
-
-// Add request/response interceptors for debugging
-apiClient.interceptors.request.use(
-  (config) => {
-    console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.url}`);
-    return config;
-  },
-  (error) => {
-    console.error('🚨 Request error:', error);
-    return Promise.reject(error);
-  }
-);
-
-apiClient.interceptors.response.use(
-  (response) => {
-    console.log(`✅ API Response: ${response.status} from ${response.config.url}`);
-    return response;
-  },
-  (error) => {
-    console.error('🚨 API Error:', error);
-    return Promise.reject(error);
-  }
-);
+// ===== REMOVE DUPLICATE INTERCEPTOR - Use shared apiClient =====
+// Token refresh is now handled in shared apiClient
 
 const useAuthStore = create(
   persist(
     (set, get) => ({
+      // State
       user: null,
       token: null,
+      refreshToken: null,
       isAuthenticated: false,
       loading: true,
+      lastActivity: null,
+      sessionExpiresAt: null,
 
-      // Smart login with user-friendly messages
+      // ===== AUTH ACTIONS =====
+
+      // Enhanced login with comprehensive error handling
       login: async (email, password) => {
         try {
           console.log('🔑 Attempting login...');
+          set({ loading: true });
           
           // Validate inputs
           if (!email || !password) {
-            message.error('Vui lòng nhập đầy đủ email và mật khẩu');
-            return { success: false, error: 'Missing credentials' };
+            const error = 'Vui lòng nhập đầy đủ email và mật khẩu';
+            message.error(error);
+            set({ loading: false });
+            return { success: false, error };
           }
+
+          // Clear any existing auth data first
+          delete apiClient.defaults.headers.common['Authorization'];
 
           const response = await apiClient.post('/api/auth/login', { 
             email: email.trim().toLowerCase(), 
@@ -65,65 +48,52 @@ const useAuthStore = create(
           console.log('✅ Login successful:', response.data);
 
           const { user, tokens } = response.data.data;
-          const token = tokens.accessToken;
+          const { accessToken, refreshToken: newRefreshToken, expiresIn } = tokens;
+
+          // Calculate session expiration
+          const sessionExpiresAt = new Date(Date.now() + (expiresIn * 1000));
 
           // Set auth headers and update state
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          set({ user, token, isAuthenticated: true });
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+          
+          set({ 
+            user, 
+            token: accessToken,
+            refreshToken: newRefreshToken,
+            isAuthenticated: true,
+            loading: false,
+            lastActivity: new Date(),
+            sessionExpiresAt
+          });
 
-          message.success(`Chào mừng ${user.name}! Đăng nhập thành công 🎉`);
-          return { success: true, user, token };
-
+          message.success(`🎉 Chào mừng ${user.name}!`);
+          return { success: true, user, token: accessToken };
+          
         } catch (error) {
-          console.error('❌ Login failed:', error);
+          console.error('❌ Login error:', error);
+          set({ loading: false });
           
-          if (error.response?.status === 401) {
-            const errorMsg = error.response.data?.message || '';
-            
-            console.log('🔍 401 Error detected:', errorMsg);
-            
-            if (errorMsg.includes('Invalid credentials') || errorMsg.includes('Invalid email or password')) {
-              console.log('🚀 Showing account not found modal...');
-              // Show smart popup for account not found
-              get().showAccountNotFoundModal(email, password);
-              return { success: false, error: 'invalid_credentials' };
-            }
-          }
-          
-          // Handle other errors
           const errorMessage = get().getErrorMessage(error);
           message.error(errorMessage);
           return { success: false, error: errorMessage };
         }
       },
 
-      // Show smart modal when account not found
-      showAccountNotFoundModal: (email, password) => {
-        const modal = Modal.confirm({
-          title: '🤔 Tài khoản không tồn tại',
-          content: `Không tìm thấy tài khoản với email: ${email}\n\nBạn có muốn tạo tài khoản mới với thông tin này không?`,
-          okText: '✨ Tạo tài khoản mới',
-          cancelText: '❌ Hủy',
-          onOk: () => {
-            // Ask for name
-            const name = prompt('👤 Nhập họ và tên của bạn:');
-            if (name && name.trim()) {
-              get().quickRegister(email, password, name.trim());
-            } else {
-              message.error('Vui lòng nhập họ và tên!');
-            }
-          },
-          onCancel: () => {
-            message.info('Vui lòng kiểm tra lại thông tin đăng nhập');
-          }
-        });
-      },
-
-      // Quick register and auto login
-      quickRegister: async (email, password, name) => {
+      // Enhanced register with validation
+      register: async (userData) => {
         try {
-          console.log('👤 Quick registering user...');
+          console.log('👤 Registering user...');
+          set({ loading: true });
           
+          // Validate required fields
+          const { email, password, name } = userData;
+          if (!email || !password || !name) {
+            const error = 'Vui lòng điền đầy đủ thông tin';
+            message.error(error);
+            set({ loading: false });
+            return { success: false, error };
+          }
+
           const response = await apiClient.post('/api/auth/register', {
             email: email.trim().toLowerCase(),
             password,
@@ -131,45 +101,32 @@ const useAuthStore = create(
           });
           
           console.log('✅ Registration successful:', response.data);
-
+          
           const { user, tokens } = response.data.data;
-          const token = tokens.accessToken;
+          const { accessToken, refreshToken: newRefreshToken, expiresIn } = tokens;
+
+          // Calculate session expiration
+          const sessionExpiresAt = new Date(Date.now() + (expiresIn * 1000));
 
           // Set auth headers and update state
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          set({ user, token, isAuthenticated: true });
-
-          message.success(`🎉 Tài khoản đã được tạo thành công! Chào mừng ${user.name}!`);
-          return { success: true, user, token };
-
-        } catch (error) {
-          console.error('❌ Registration failed:', error);
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
           
-          const errorMessage = get().getErrorMessage(error);
-          message.error(`Tạo tài khoản thất bại: ${errorMessage}`);
-          return { success: false, error: errorMessage };
-        }
-      },
-
-      // Standard register function
-      register: async (userData) => {
-        try {
-          console.log('👤 Registering user...');
-          
-          const response = await apiClient.post('/api/auth/register', userData);
-          console.log('✅ Registration successful:', response.data);
-          
-          const { user, tokens } = response.data.data;
-          const token = tokens.accessToken;
-
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          set({ user, token, isAuthenticated: true });
+          set({ 
+            user, 
+            token: accessToken,
+            refreshToken: newRefreshToken,
+            isAuthenticated: true,
+            loading: false,
+            lastActivity: new Date(),
+            sessionExpiresAt
+          });
 
           message.success(`🎉 Đăng ký thành công! Chào mừng ${user.name}!`);
-          return { success: true, user, token };
+          return { success: true, user, token: accessToken };
           
         } catch (error) {
           console.error('❌ Registration error:', error);
+          set({ loading: false });
           
           const errorMessage = get().getErrorMessage(error);
           message.error(errorMessage);
@@ -177,102 +134,299 @@ const useAuthStore = create(
         }
       },
 
-      // Logout
+      // Enhanced logout with cleanup
       logout: async () => {
         try {
           console.log('👋 Logging out...');
           
-          if (get().token) {
-            await apiClient.post('/api/auth/logout');
+          const { token } = get();
+          
+          // Call server logout if authenticated
+          if (token) {
+            try {
+              await apiClient.post('/api/auth/logout', {}, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 5000 // Short timeout for logout
+              });
+              console.log('✅ Server logout successful');
+            } catch (error) {
+              console.error('❌ Server logout error:', error);
+              // Continue with client logout even if server fails
+            }
           }
+          
         } catch (error) {
           console.error('❌ Logout error:', error);
         } finally {
-          delete apiClient.defaults.headers.common['Authorization'];
-          set({ user: null, token: null, isAuthenticated: false });
+          // Always clear client state
+          get().clearAuth();
           message.success('👋 Đã đăng xuất thành công');
+          
+          // Redirect to login
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 1000);
         }
       },
 
-      // Check authentication
+      // Force logout without server call (for expired sessions)
+      forceLogout: () => {
+        console.log('🚨 Force logout triggered');
+        get().clearAuth();
+        message.warning('Phiên đăng nhập đã hết hạn');
+      },
+
+      // Logout from all devices
+      logoutAll: async () => {
+        try {
+          console.log('🚪 Logging out from all devices...');
+          
+          const { token } = get();
+          if (token) {
+            await apiClient.post('/api/auth/logout-all', {}, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+          }
+          
+          get().clearAuth();
+          message.success('🔒 Đã đăng xuất khỏi tất cả thiết bị');
+          
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 1000);
+          
+        } catch (error) {
+          console.error('❌ Logout all error:', error);
+          // Still clear local state
+          get().clearAuth();
+          message.error('Có lỗi xảy ra, nhưng đã đăng xuất cục bộ');
+        }
+      },
+
+      // Check authentication status
       checkAuth: async () => {
-        const { token } = get();
+        const { token, sessionExpiresAt } = get();
+        
         if (!token) {
-          set({ loading: false });
-          return;
+          set({ loading: false, isAuthenticated: false });
+          return false;
+        }
+
+        // Check if session is expired
+        if (sessionExpiresAt && new Date() > new Date(sessionExpiresAt)) {
+          console.log('⏰ Session expired');
+          get().forceLogout();
+          return false;
         }
 
         try {
           console.log('🔍 Checking authentication...');
+          
+          // Set auth header
           apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           
           const response = await apiClient.get('/api/auth/me');
           console.log('✅ Auth check successful');
           
           const user = response.data.data.user;
-          set({ user, isAuthenticated: true, loading: false });
+          set({ 
+            user, 
+            isAuthenticated: true, 
+            loading: false,
+            lastActivity: new Date()
+          });
+          
+          return true;
           
         } catch (error) {
           console.error('❌ Auth check failed:', error);
           
-          delete apiClient.defaults.headers.common['Authorization'];
-          set({ user: null, token: null, isAuthenticated: false, loading: false });
+          // Clear invalid auth state
+          get().clearAuth();
+          return false;
         }
       },
+
+      // Manual token refresh
+      refreshToken: async () => {
+        try {
+          const { refreshToken } = get();
+          
+          if (!refreshToken) {
+            throw new Error('No refresh token available');
+          }
+
+          console.log('🔄 Manually refreshing token...');
+          
+          const response = await apiClient.post('/api/auth/refresh', {
+            refreshToken
+          });
+          
+          const { tokens } = response.data.data;
+          const { accessToken, refreshToken: newRefreshToken, expiresIn } = tokens;
+          
+          // Calculate new session expiration
+          const sessionExpiresAt = new Date(Date.now() + (expiresIn * 1000));
+          
+          // Update auth headers and state
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+          
+          set({ 
+            token: accessToken,
+            refreshToken: newRefreshToken,
+            sessionExpiresAt,
+            lastActivity: new Date()
+          });
+          
+          console.log('✅ Token refreshed successfully');
+          return { success: true, token: accessToken };
+          
+        } catch (error) {
+          console.error('❌ Token refresh failed:', error);
+          get().forceLogout();
+          return { success: false, error: error.message };
+        }
+      },
+
+      // ===== UTILITY ACTIONS =====
 
       // Update user data
       updateUser: (userData) => {
         set(state => ({ 
-          user: { ...state.user, ...userData } 
+          user: { ...state.user, ...userData },
+          lastActivity: new Date()
         }));
+        console.log('👤 User data updated:', userData);
       },
 
-      // Clear auth state
+      // Clear all auth state
       clearAuth: () => {
+        console.log('🧹 Clearing auth state...');
+        
+        // Remove auth header
         delete apiClient.defaults.headers.common['Authorization'];
-        set({ user: null, token: null, isAuthenticated: false, loading: false });
+        
+        // Clear state
+        set({ 
+          user: null, 
+          token: null, 
+          refreshToken: null,
+          isAuthenticated: false, 
+          loading: false,
+          lastActivity: null,
+          sessionExpiresAt: null
+        });
+        
+        // Clear localStorage manually
+        try {
+          localStorage.removeItem('auth-storage');
+          sessionStorage.removeItem('auth-storage');
+        } catch (error) {
+          console.error('Error clearing storage:', error);
+        }
       },
 
-      // Helper function to get user-friendly error messages
+      // Update last activity (call this on user interactions)
+      updateActivity: () => {
+        set({ lastActivity: new Date() });
+      },
+
+      // Check if session is near expiry (within 5 minutes)
+      isSessionNearExpiry: () => {
+        const { sessionExpiresAt } = get();
+        if (!sessionExpiresAt) return false;
+        
+        const fiveMinutes = 5 * 60 * 1000;
+        const timeLeft = new Date(sessionExpiresAt) - new Date();
+        return timeLeft <= fiveMinutes && timeLeft > 0;
+      },
+
+      // Get time until session expires
+      getTimeUntilExpiry: () => {
+        const { sessionExpiresAt } = get();
+        if (!sessionExpiresAt) return null;
+        
+        return new Date(sessionExpiresAt) - new Date();
+      },
+
+      // ===== ERROR HANDLING =====
+
+      // Enhanced error message handler
       getErrorMessage: (error) => {
         if (error.response) {
           const status = error.response.status;
           const serverMessage = error.response.data?.message || '';
           
-          if (status === 400) {
-            if (serverMessage.includes('already exists')) {
-              return 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc sử dụng email khác.';
-            }
-            if (serverMessage.includes('password')) {
-              return 'Mật khẩu không đủ mạnh. Cần ít nhất 8 ký tự với chữ hoa, chữ thường và số.';
-            }
-            return serverMessage || 'Thông tin không hợp lệ';
+          // Handle specific status codes
+          switch (status) {
+            case 400:
+              if (serverMessage.includes('already exists')) {
+                return 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc sử dụng email khác.';
+              }
+              if (serverMessage.includes('password')) {
+                if (serverMessage.includes('strength') || serverMessage.includes('weak')) {
+                  return 'Mật khẩu quá yếu. Cần ít nhất 8 ký tự với chữ hoa, chữ thường và số.';
+                }
+                return 'Mật khẩu không hợp lệ.';
+              }
+              if (serverMessage.includes('email')) {
+                return 'Định dạng email không hợp lệ.';
+              }
+              if (serverMessage.includes('required')) {
+                return 'Vui lòng điền đầy đủ thông tin bắt buộc.';
+              }
+              return serverMessage || 'Dữ liệu không hợp lệ';
+              
+            case 401:
+              if (serverMessage.includes('credentials')) {
+                return 'Email hoặc mật khẩu không chính xác';
+              }
+              if (serverMessage.includes('token')) {
+                return 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.';
+              }
+              return 'Không có quyền truy cập. Vui lòng đăng nhập.';
+              
+            case 403:
+              return 'Tài khoản bị khóa hoặc không có đủ quyền truy cập';
+              
+            case 404:
+              return 'Không tìm thấy tài khoản hoặc tài nguyên';
+              
+            case 409:
+              return 'Dữ liệu bị trung lặp. Vui lòng kiểm tra lại.';
+              
+            case 422:
+              return 'Dữ liệu không hợp lệ. Vui lòng kiểm tra và thử lại.';
+              
+            case 429:
+              return 'Quá nhiều yêu cầu. Vui lòng chờ một chút rồi thử lại.';
+              
+            case 500:
+              return 'Lỗi server nội bộ. Vui lòng thử lại sau.';
+              
+            case 502:
+            case 503:
+            case 504:
+              return 'Server tạm thời không khả dụng. Vui lòng thử lại sau.';
+              
+            default:
+              return serverMessage || `Lỗi ${status}. Vui lòng thử lại.`;
           }
-          
-          if (status === 401) {
-            return 'Thông tin đăng nhập không chính xác';
-          }
-          
-          if (status === 403) {
-            return 'Tài khoản bị khóa hoặc không có quyền truy cập';
-          }
-          
-          if (status >= 500) {
-            return 'Lỗi server. Vui lòng thử lại sau.';
-          }
-          
-          return serverMessage || `Lỗi ${status}`;
         }
         
+        // Handle network errors
         if (error.request) {
+          if (error.code === 'ECONNABORTED') {
+            return 'Kết nối quá chậm. Vui lòng kiểm tra mạng và thử lại.';
+          }
+          if (error.code === 'NETWORK_ERROR') {
+            return 'Lỗi mạng. Vui lòng kiểm tra kết nối internet.';
+          }
           return 'Không thể kết nối đến server. Vui lòng kiểm tra kết nối mạng.';
         }
         
-        if (error.code === 'ECONNABORTED') {
-          return 'Kết nối quá chậm. Vui lòng thử lại.';
-        }
-        
-        return error.message || 'Có lỗi không xác định xảy ra';
+        // Handle other errors
+        return error.message || 'Có lỗi không xác định xảy ra. Vui lòng thử lại.';
       }
     }),
     {
@@ -280,10 +434,27 @@ const useAuthStore = create(
       partialize: (state) => ({
         user: state.user,
         token: state.token,
-        isAuthenticated: state.isAuthenticated
-      })
+        refreshToken: state.refreshToken,
+        isAuthenticated: state.isAuthenticated,
+        sessionExpiresAt: state.sessionExpiresAt
+      }),
+      // Add version for future migrations
+      version: 1,
+      migrate: (persistedState, version) => {
+        if (version === 0) {
+          // Migration logic for older versions
+          console.log('🔄 Migrating auth store from version 0 to 1');
+          return {
+            ...persistedState,
+            refreshToken: null,
+            sessionExpiresAt: null
+          };
+        }
+        return persistedState;
+      }
     }
   )
 );
 
-export { useAuthStore };
+// Export the store and apiClient for use in other parts of the app
+export { useAuthStore, apiClient };

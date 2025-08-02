@@ -1,6 +1,6 @@
-// frontend/src/pages/auth/LoginPage.js - SMART VERSION
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+// frontend/src/pages/auth/LoginPage.js - FIXED VERSION
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Card, 
   Form, 
@@ -28,9 +28,18 @@ const { Title, Text } = Typography;
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const { login } = useAuthStore();
+  const { login, isAuthenticated } = useAuthStore();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      const redirectTo = location.state?.from?.pathname || '/dashboard';
+      navigate(redirectTo, { replace: true });
+    }
+  }, [isAuthenticated, navigate, location]);
 
   const handleSubmit = async (values) => {
     setLoading(true);
@@ -44,16 +53,20 @@ const LoginPage = () => {
       
       if (result.success) {
         console.log('✅ Login successful, navigating to dashboard');
+        
+        // Get redirect path from location state or default to dashboard
+        const redirectTo = location.state?.from?.pathname || '/dashboard';
+        
         // Small delay to let user see success message
         setTimeout(() => {
-          navigate('/dashboard');
+          navigate(redirectTo, { replace: true });
         }, 1000);
       }
-      // If login fails with invalid_credentials, the smart auth system 
-      // will handle showing the registration modal automatically
+      // If login fails, the smart auth system handles showing error/registration modal
       
     } catch (error) {
       console.error('🚨 Login exception:', error);
+      message.error('Có lỗi không mong muốn xảy ra. Vui lòng thử lại!');
     } finally {
       setLoading(false);
     }
@@ -63,12 +76,30 @@ const LoginPage = () => {
     try {
       const googleUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
       console.log('🌐 Redirecting to Google OAuth:', googleUrl);
+      
+      // Store current location for redirect after OAuth
+      sessionStorage.setItem('oauth_redirect', location.state?.from?.pathname || '/dashboard');
+      
       window.location.href = googleUrl;
     } catch (error) {
       console.error('🚨 Google login error:', error);
       message.error('Không thể kết nối đến Google. Vui lòng thử lại!');
     }
   };
+
+  // Show loading state during auth check
+  if (isAuthenticated) {
+    return (
+      <Row justify="center" align="middle" style={{ minHeight: '80vh' }}>
+        <Col>
+          <div style={{ textAlign: 'center' }}>
+            <LinkOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
+            <Text>Đang chuyển hướng...</Text>
+          </div>
+        </Col>
+      </Row>
+    );
+  }
 
   return (
     <Row justify="center" align="middle" style={{ minHeight: '80vh' }}>
@@ -104,6 +135,7 @@ const LoginPage = () => {
               layout="vertical"
               size="large"
               style={{ width: '100%' }}
+              autoComplete="on"
             >
               <Form.Item
                 name="email"
@@ -114,7 +146,7 @@ const LoginPage = () => {
               >
                 <Input 
                   prefix={<UserOutlined />} 
-                  placeholder="Email của bạn" 
+                  placeholder="Email"
                   autoComplete="email"
                 />
               </Form.Item>
@@ -122,13 +154,12 @@ const LoginPage = () => {
               <Form.Item
                 name="password"
                 rules={[
-                  { required: true, message: 'Vui lòng nhập mật khẩu!' },
-                  { min: 6, message: 'Mật khẩu phải có ít nhất 6 ký tự!' }
+                  { required: true, message: 'Vui lòng nhập mật khẩu!' }
                 ]}
               >
                 <Input.Password 
                   prefix={<LockOutlined />} 
-                  placeholder="Mật khẩu của bạn" 
+                  placeholder="Mật khẩu"
                   autoComplete="current-password"
                 />
               </Form.Item>
@@ -141,24 +172,11 @@ const LoginPage = () => {
                   icon={<LoginOutlined />}
                   block
                   size="large"
-                  disabled={loading}
                 >
-                  {loading ? 'Đang xử lý...' : '🚀 Đăng nhập / Tạo tài khoản'}
+                  {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
                 </Button>
               </Form.Item>
             </Form>
-
-            {/* How it works */}
-            <div style={{ textAlign: 'left', padding: '0 8px' }}>
-              <Text strong style={{ fontSize: '14px', color: '#1890ff' }}>
-                💡 Cách hoạt động:
-              </Text>
-              <ul style={{ fontSize: '12px', color: '#666', marginTop: 8, paddingLeft: 16 }}>
-                <li>Nếu bạn đã có tài khoản → Đăng nhập ngay</li>
-                <li>Nếu chưa có tài khoản → Tự động tạo tài khoản mới</li>
-                <li>Không cần phải nhớ có tài khoản hay chưa!</li>
-              </ul>
-            </div>
 
             {/* Google Login */}
             <div style={{ width: '100%' }}>
@@ -169,9 +187,9 @@ const LoginPage = () => {
               <Button 
                 icon={<GoogleOutlined />}
                 onClick={handleGoogleLogin}
+                loading={loading}
                 block
                 size="large"
-                disabled={loading}
                 style={{ 
                   borderColor: '#db4437',
                   color: '#db4437'
@@ -181,15 +199,28 @@ const LoginPage = () => {
               </Button>
             </div>
 
-            {/* Traditional Register Link (optional) */}
+            {/* Register Link */}
             <div>
-              <Text type="secondary" style={{ fontSize: '12px' }}>
+              <Text type="secondary">
                 Muốn tạo tài khoản thủ công? {' '}
                 <Link to="/register" style={{ fontWeight: 500 }}>
-                  Đăng ký truyền thống
+                  Đăng ký tại đây
                 </Link>
               </Text>
             </div>
+
+            {/* Demo Account Info */}
+            <Alert
+              message="🧪 Tài khoản demo"
+              description={
+                <div>
+                  <div>Email: demo@shortlink.com</div>
+                  <div>Mật khẩu: Demo123!</div>
+                </div>
+              }
+              type="warning"
+              style={{ textAlign: 'left' }}
+            />
           </Space>
         </Card>
       </Col>

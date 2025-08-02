@@ -1,4 +1,4 @@
-// frontend/src/pages/DashboardPage.js
+// frontend/src/pages/DashboardPage.js - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
@@ -16,7 +16,9 @@ import {
   Popconfirm,
   Empty,
   message,
-  Tooltip
+  Tooltip,
+  Spin,
+  Alert
 } from 'antd';
 import {
   PlusOutlined,
@@ -26,7 +28,8 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
-  SearchOutlined
+  SearchOutlined,
+  ReloadOutlined
 } from '@ant-design/icons';
 import { useAuthStore } from '../stores/authStore';
 import { useLinkStore } from '../stores/linkStore';
@@ -42,48 +45,117 @@ const DashboardPage = () => {
   const { links, stats, loading, fetchLinks, fetchStats, deleteLink } = useLinkStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCampaign, setSelectedCampaign] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // ===== FIX: Safe stats with default fallback =====
+  const safeStats = stats || { 
+    totalLinks: 0, 
+    totalClicks: 0, 
+    avgClicks: 0,
+    activeLinks: 0,
+    campaignLinks: 0 
+  };
+
+  // ===== FIX: Safe links array =====
+  const safeLinks = Array.isArray(links) ? links : [];
 
   useEffect(() => {
-    fetchLinks();
-    fetchStats();
+    const loadData = async () => {
+      try {
+        await Promise.all([
+          fetchLinks(),
+          fetchStats()
+        ]);
 
-    // Show success message if coming from create page
-    if (location.state?.newLink) {
-      message.success(`Liên kết ${location.state.newLink.shortCode} đã được tạo!`);
-    }
+        // Show success message if coming from create page
+        if (location.state?.newLink) {
+          message.success(`Liên kết ${location.state.newLink.shortCode} đã được tạo!`);
+          // Clear the state to prevent showing message again
+          window.history.replaceState(null, '');
+        }
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+        message.error('Có lỗi khi tải dữ liệu dashboard');
+      }
+    };
+
+    loadData();
   }, [fetchLinks, fetchStats, location.state]);
 
-  const filteredLinks = links.filter(link => {
+  // Refresh data
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        fetchLinks(),
+        fetchStats()
+      ]);
+      message.success('Dữ liệu đã được cập nhật');
+    } catch (error) {
+      message.error('Có lỗi khi tải lại dữ liệu');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Filter links safely
+  const filteredLinks = safeLinks.filter(link => {
     const matchesSearch = !searchTerm || 
       link.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      link.originalUrl.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      link.shortCode.toLowerCase().includes(searchTerm.toLowerCase());
+      link.originalUrl?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      link.shortCode?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesCampaign = !selectedCampaign || link.campaign === selectedCampaign;
     
     return matchesSearch && matchesCampaign;
   });
 
-  const campaigns = [...new Set(links.map(link => link.campaign).filter(Boolean))];
+  // Extract campaigns safely
+  const campaigns = [...new Set(
+    safeLinks
+      .map(link => link.campaign)
+      .filter(Boolean)
+  )];
 
   const handleDelete = async (linkId, shortCode) => {
-    const result = await deleteLink(linkId);
-    if (result.success) {
-      message.success('Liên kết đã được xóa');
-      fetchLinks(); // Refresh list
+    try {
+      const result = await deleteLink(linkId);
+      if (result.success) {
+        message.success(`Liên kết ${shortCode} đã được xóa`);
+        // Refresh data after delete
+        await Promise.all([
+          fetchLinks(),
+          fetchStats()
+        ]);
+      } else {
+        message.error(result.error || 'Không thể xóa liên kết');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      message.error('Có lỗi khi xóa liên kết');
     }
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    message.success('Đã sao chép vào clipboard!');
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success('Đã sao chép vào clipboard!');
+    } catch (error) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      message.success('Đã sao chép vào clipboard!');
+    }
   };
 
-  // FIXED: Sử dụng API URL thay vì window.location.origin
-  const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000';
-
-  // FIXED: Safe access to stats với default values
-  const safeStats = stats || { totalLinks: 0, totalClicks: 0, avgClicks: 0 };
+  // Use environment variable or fallback
+  const baseUrl = process.env.REACT_APP_BASE_URL || 
+                  process.env.REACT_APP_API_URL?.replace('/api', '') || 
+                  'http://localhost:4000';
 
   // Table columns
   const columns = [
@@ -135,6 +207,17 @@ const DashboardPage = () => {
       ),
     },
     {
+      title: 'Trạng thái',
+      dataIndex: 'isActive',
+      key: 'isActive',
+      width: 100,
+      render: (isActive) => (
+        <Tag color={isActive ? 'green' : 'red'}>
+          {isActive ? 'Hoạt động' : 'Tạm dừng'}
+        </Tag>
+      ),
+    },
+    {
       title: 'Ngày tạo',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -169,7 +252,7 @@ const DashboardPage = () => {
           <Tooltip title="Xóa">
             <Popconfirm
               title="Bạn có chắc chắn muốn xóa liên kết này?"
-              description="Hành động này không thể hoàn tác!"
+              description={`Liên kết "${record.shortCode}" sẽ bị xóa vĩnh viễn!`}
               onConfirm={() => handleDelete(record.id, record.shortCode)}
               okText="Xóa"
               cancelText="Hủy"
@@ -191,16 +274,43 @@ const DashboardPage = () => {
   const renderEmptyState = () => (
     <Empty
       image={Empty.PRESENTED_IMAGE_SIMPLE}
-      description="Chưa có liên kết nào"
+      description={
+        <div>
+          <p>Chưa có liên kết nào</p>
+          <Text type="secondary">Tạo liên kết đầu tiên để bắt đầu rút gọn URL</Text>
+        </div>
+      }
       style={{ padding: '60px 0' }}
     >
-      <Link to="/create">
-        <Button type="primary" icon={<PlusOutlined />}>
-          Tạo liên kết đầu tiên
+      <Space>
+        <Link to="/create">
+          <Button type="primary" icon={<PlusOutlined />}>
+            Tạo liên kết đầu tiên
+          </Button>
+        </Link>
+        <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
+          Tải lại
         </Button>
-      </Link>
+      </Space>
     </Empty>
   );
+
+  // Loading state
+  if (loading && safeLinks.length === 0) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '50vh',
+        flexDirection: 'column',
+        gap: 16
+      }}>
+        <Spin size="large" />
+        <Text type="secondary">Đang tải dữ liệu dashboard...</Text>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
@@ -211,86 +321,127 @@ const DashboardPage = () => {
             <Title level={2} style={{ margin: 0 }}>
               Dashboard
             </Title>
-            <Text type="secondary">Chào mừng trở lại, {user?.name || 'User'}!</Text>
+            <Text type="secondary">
+              Chào mừng trở lại, {user?.name || 'User'}! 
+              {safeStats.totalLinks > 0 && ` Bạn có ${safeStats.totalLinks} liên kết.`}
+            </Text>
           </div>
-          <Link to="/create">
-            <Button type="primary" icon={<PlusOutlined />} size="large">
-              Tạo Liên Kết Mới
+          <Space>
+            <Button 
+              icon={<ReloadOutlined />} 
+              onClick={handleRefresh}
+              loading={refreshing}
+            >
+              Tải lại
             </Button>
-          </Link>
+            <Link to="/create">
+              <Button type="primary" icon={<PlusOutlined />} size="large">
+                Tạo Liên Kết Mới
+              </Button>
+            </Link>
+          </Space>
         </div>
 
         {/* Stats Cards */}
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={12} md={6}>
             <Card>
               <Statistic
                 title="Tổng Liên Kết"
-                value={safeStats.totalLinks || 0}
+                value={safeStats.totalLinks}
                 prefix={<LinkOutlined />}
                 valueStyle={{ color: '#1890ff' }}
               />
             </Card>
           </Col>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={12} md={6}>
             <Card>
               <Statistic
                 title="Tổng Clicks"
-                value={safeStats.totalClicks || 0}
+                value={safeStats.totalClicks}
                 prefix={<EyeOutlined />}
                 valueStyle={{ color: '#52c41a' }}
               />
             </Card>
           </Col>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={12} md={6}>
             <Card>
               <Statistic
                 title="Clicks Trung Bình"
-                value={safeStats.avgClicks || 0}
+                value={safeStats.avgClicks}
                 precision={1}
                 prefix={<BarChartOutlined />}
                 valueStyle={{ color: '#fa8c16' }}
               />
             </Card>
           </Col>
+          <Col xs={24} sm={12} md={6}>
+            <Card>
+              <Statistic
+                title="Liên Kết Hoạt Động"
+                value={safeStats.activeLinks}
+                prefix={<LinkOutlined />}
+                valueStyle={{ color: '#13c2c2' }}
+              />
+            </Card>
+          </Col>
         </Row>
 
-        {/* Filters */}
-        <Card>
-          <Row gutter={[16, 16]} align="middle">
-            <Col xs={24} sm={12} md={8}>
-              <Search
-                placeholder="Tìm kiếm liên kết..."
-                allowClear
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                prefix={<SearchOutlined />}
-              />
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Select
-                placeholder="Lọc theo chiến dịch"
-                allowClear
-                style={{ width: '100%' }}
-                value={selectedCampaign}
-                onChange={setSelectedCampaign}
-              >
-                {campaigns.map(campaign => (
-                  <Option key={campaign} value={campaign}>
-                    {campaign}
-                  </Option>
-                ))}
-              </Select>
-            </Col>
-            <Col xs={24} md={8}>
-              <div style={{ textAlign: 'right' }}>
-                <Text type="secondary">
-                  Hiển thị {filteredLinks.length} / {links.length} liên kết
-                </Text>
-              </div>
-            </Col>
-          </Row>
-        </Card>
+        {/* Show alert if no data */}
+        {safeLinks.length === 0 && !loading && (
+          <Alert
+            message="Chưa có dữ liệu"
+            description="Bạn chưa tạo liên kết nào. Hãy tạo liên kết đầu tiên để bắt đầu!"
+            type="info"
+            showIcon
+            action={
+              <Link to="/create">
+                <Button size="small" type="primary">
+                  Tạo ngay
+                </Button>
+              </Link>
+            }
+          />
+        )}
+
+        {/* Filters - Only show if there are links */}
+        {safeLinks.length > 0 && (
+          <Card>
+            <Row gutter={[16, 16]} align="middle">
+              <Col xs={24} sm={12} md={8}>
+                <Search
+                  placeholder="Tìm kiếm liên kết..."
+                  allowClear
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  prefix={<SearchOutlined />}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8}>
+                <Select
+                  placeholder="Lọc theo chiến dịch"
+                  allowClear
+                  style={{ width: '100%' }}
+                  value={selectedCampaign}
+                  onChange={setSelectedCampaign}
+                >
+                  {campaigns.map(campaign => (
+                    <Option key={campaign} value={campaign}>
+                      {campaign}
+                    </Option>
+                  ))}
+                </Select>
+              </Col>
+              <Col xs={24} md={8}>
+                <div style={{ textAlign: 'right' }}>
+                  <Text type="secondary">
+                    Hiển thị {filteredLinks.length} / {safeLinks.length} liên kết
+                  </Text>
+                </div>
+              </Col>
+            </Row>
+          </Card>
+        )}
 
         {/* Links Table */}
         <Card>
@@ -308,6 +459,7 @@ const DashboardPage = () => {
               showQuickJumper: true,
               showTotal: (total, range) => 
                 `${range[0]}-${range[1]} của ${total} liên kết`,
+              hideOnSinglePage: filteredLinks.length <= 10
             }}
             scroll={{ x: 800 }}
           />
