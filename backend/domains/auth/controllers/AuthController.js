@@ -278,6 +278,36 @@ class AuthController {
       });
     }
   }
-}
+  // POST /api/auth/check-email
+  async checkEmail(req, res) {
+    try {
+      const { email } = req.body;
 
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is required'
+        });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const user = await authService.findUserByEmail(normalizedEmail);
+
+      res.json({
+        success: true,
+        data: {
+          exists: !!user,
+          hasPassword: user ? !!user.password : false,
+          isOAuthUser: user ? !user.password : false
+        }
+      });
+    } catch (error) {
+      console.error('❌ Check email error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      });
+    }
+  }
+}
 module.exports = new AuthController();

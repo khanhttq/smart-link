@@ -1,26 +1,26 @@
-// frontend/src/pages/auth/RegisterPage.js - FIXED
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
-  Card, 
   Form, 
   Input, 
   Button, 
   Typography, 
+  Space, 
+  Row, 
+  Col, 
+  Card, 
   Divider, 
-  Space,
-  Row,
-  Col
+  message
 } from 'antd';
 import {
   UserOutlined,
   LockOutlined,
   MailOutlined,
   GoogleOutlined,
-  LinkOutlined,
   UserAddOutlined
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
+import './RegisterPage.less';
 
 const { Title, Text } = Typography;
 
@@ -32,49 +32,59 @@ const RegisterPage = () => {
 
   const handleSubmit = async (values) => {
     setLoading(true);
-    
-    const result = await register({
-      name: values.name,
-      email: values.email,
-      password: values.password
-    });
-    
-    if (result.success) {
-      navigate('/dashboard');
+    try {
+      const result = await register({
+        name: values.name,
+        email: values.email,
+        password: values.password
+      });
+      if (result.success) {
+        message.success('Đăng ký thành công!');
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true });
+        }, 1000);
+      } else {
+        message.error('Đăng ký thất bại. Vui lòng thử lại!');
+      }
+    } catch (error) {
+      message.error('Có lỗi xảy ra. Vui lòng thử lại!');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleGoogleLogin = () => {
-    // Redirect to Google OAuth
-    window.location.href = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
+    try {
+      const googleUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
+      sessionStorage.setItem('oauth_redirect', '/dashboard');
+      window.location.href = googleUrl;
+    } catch (error) {
+      message.error('Không thể kết nối đến Google. Vui lòng thử lại!');
+    }
   };
 
   return (
-    <Row justify="center" align="middle" style={{ minHeight: '80vh' }}>
-      <Col xs={22} sm={16} md={12} lg={8} xl={6}>
-        <Card style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-          <Space direction="vertical" size="large" style={{ width: '100%', textAlign: 'center' }}>
-            {/* Logo & Title */}
-            <div>
-              <LinkOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-              <Title level={2} style={{ margin: 0 }}>
-                Đăng ký
-              </Title>
-              <Text type="secondary">
+    <div className="register-page">
+      <Row justify="center" align="middle" className="register-container">
+        <Col xs={22} sm={16} md={12} lg={8}>
+          <Card className="register-card" variant="borderless">
+            <div className="register-header">
+              <Link to="/">
+                <img src="/logo.png" alt="Shortlink System" className="register-logo" />
+              </Link>
+              <Title level={3} className="register-title">Shortlink System</Title>
+              <Text type="secondary" className="register-subtitle">
                 Tạo tài khoản mới để bắt đầu sử dụng
               </Text>
             </div>
 
-            {/* Register Form */}
             <Form
               form={form}
               name="register"
               onFinish={handleSubmit}
               layout="vertical"
               size="large"
-              style={{ width: '100%' }}
+              className="register-form"
             >
               <Form.Item
                 name="name"
@@ -141,48 +151,44 @@ const RegisterPage = () => {
                   type="primary" 
                   htmlType="submit" 
                   loading={loading}
-                  icon={<UserAddOutlined />}
                   block
-                  size="large"
+                  icon={<UserAddOutlined />}
                 >
-                  {loading ? 'Đang đăng ký...' : 'Đăng ký'}
+                  Đăng ký
                 </Button>
               </Form.Item>
             </Form>
 
-            {/* Google Register */}
-            <div style={{ width: '100%' }}>
-              <Divider>
-                <Text type="secondary">hoặc</Text>
-              </Divider>
-              
-              <Button 
-                icon={<GoogleOutlined />}
-                onClick={handleGoogleLogin}
-                block
-                size="large"
-                style={{ 
-                  borderColor: '#db4437',
-                  color: '#db4437'
-                }}
-              >
-                Đăng ký với Google
-              </Button>
-            </div>
+            <Divider>Hoặc</Divider>
 
-            {/* Login Link */}
-            <div>
-              <Text type="secondary">
-                Đã có tài khoản? {' '}
-                <Link to="/login" style={{ fontWeight: 500 }}>
-                  Đăng nhập ngay
-                </Link>
-              </Text>
+            <Button
+              icon={<GoogleOutlined />}
+              onClick={handleGoogleLogin}
+              className="social-register-btn"
+              block
+            >
+              Đăng ký với Google
+            </Button>
+
+            <div className="login-link">
+              <Text type="secondary">Đã có tài khoản? </Text>
+              <Link to="/login">Đăng nhập ngay</Link>
             </div>
-          </Space>
-        </Card>
-      </Col>
-    </Row>
+          </Card>
+
+          <div className="register-footer">
+            <Space split={<Divider type="vertical" />}>
+              <Link to="/help">Trợ giúp</Link>
+              <Link to="/privacy">Quyền riêng tư</Link>
+              <Link to="/terms">Điều khoản</Link>
+            </Space>
+            <Text type="secondary" className="copyright">
+              © 2024 Shortlink System. All rights reserved.
+            </Text>
+          </div>
+        </Col>
+      </Row>
+    </div>
   );
 };
 

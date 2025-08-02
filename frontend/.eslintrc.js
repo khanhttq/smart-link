@@ -1,57 +1,41 @@
-// frontend/.eslintrc.js
+// frontend/.eslintrc.js - Fixed Configuration
 module.exports = {
   env: {
     browser: true,
     es2021: true,
-    node: true
+    node: true,
   },
   extends: [
     'eslint:recommended',
-    '@typescript-eslint/recommended',
     'plugin:react/recommended',
-    'plugin:react-hooks/recommended'
+    'plugin:react-hooks/recommended',
+    // Remove TypeScript configs if not using TypeScript
+    // '@typescript-eslint/recommended',
   ],
-  parser: '@typescript-eslint/parser',
   parserOptions: {
     ecmaFeatures: {
-      jsx: true
+      jsx: true,
     },
-    ecmaVersion: 'latest',
-    sourceType: 'module'
+    ecmaVersion: 12,
+    sourceType: 'module',
   },
   plugins: [
     'react',
-    '@typescript-eslint',
-    'react-hooks'
+    'react-hooks',
+    // Remove if not using TypeScript
+    // '@typescript-eslint',
   ],
   rules: {
-    // Disable some strict rules for development
+    'react/react-in-jsx-scope': 'off', // Not needed with React 17+
+    'react/prop-types': 'off', // Can disable if using TypeScript
     'no-unused-vars': 'warn',
     'no-console': 'warn',
-    'react/prop-types': 'off',
-    'react/react-in-jsx-scope': 'off',
-    
-    // Custom rules
-    'quotes': ['error', 'single'],
-    'semi': ['error', 'always'],
-    'indent': ['error', 2],
-    'comma-dangle': ['error', 'never'],
-    
-    // React specific
-    'react/jsx-uses-react': 'error',
-    'react/jsx-uses-vars': 'error',
     'react-hooks/rules-of-hooks': 'error',
-    'react-hooks/exhaustive-deps': 'warn'
+    'react-hooks/exhaustive-deps': 'warn',
   },
   settings: {
     react: {
-      version: 'detect'
-    }
+      version: 'detect',
+    },
   },
-  ignorePatterns: [
-    'node_modules/',
-    'build/',
-    'dist/',
-    '*.min.js'
-  ]
 };

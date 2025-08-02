@@ -1,4 +1,4 @@
-// frontend/src/pages/HomePage.js
+// frontend/src/pages/HomePage.js - FIXED VERSION
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { 
@@ -40,6 +40,12 @@ const HomePage = () => {
     }
   ];
 
+  const stats = [
+    { title: 'Liên kết đã tạo', value: 12543, prefix: <LinkOutlined /> },
+    { title: 'Tổng clicks', value: 89012, prefix: <EyeOutlined /> },
+    { title: 'Người dùng', value: 1234, prefix: <SafetyOutlined /> }
+  ];
+
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
       <Space direction="vertical" size={60} style={{ width: '100%' }}>
@@ -55,24 +61,15 @@ const HomePage = () => {
             Hệ thống rút gọn liên kết mạnh mẽ với analytics chi tiết. 
             Tạo, quản lý và theo dõi hiệu quả các liên kết của bạn một cách dễ dàng.
           </Paragraph>
-
-          <Space size="large">
+          
+          <Space size="middle">
             <Link to="/register">
-              <Button 
-                type="primary" 
-                size="large" 
-                icon={<RocketOutlined />}
-                style={{ height: 50, padding: '0 32px', fontSize: 16 }}
-              >
+              <Button type="primary" size="large" icon={<RocketOutlined />}>
                 Bắt đầu miễn phí
               </Button>
             </Link>
-            
             <Link to="/login">
-              <Button 
-                size="large"
-                style={{ height: 50, padding: '0 32px', fontSize: 16 }}
-              >
+              <Button size="large">
                 Đăng nhập
               </Button>
             </Link>
@@ -80,40 +77,29 @@ const HomePage = () => {
         </div>
 
         {/* Stats Section */}
-        <Card style={{ background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)', border: 'none' }}>
-          <Row gutter={[32, 32]} justify="center">
-            <Col xs={24} sm={8} style={{ textAlign: 'center' }}>
-              <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Liên kết đã tạo</span>}
-                value={1234}
-                valueStyle={{ color: '#fff', fontSize: 32 }}
-                prefix={<LinkOutlined style={{ color: '#fff' }} />}
-              />
-            </Col>
-            <Col xs={24} sm={8} style={{ textAlign: 'center' }}>
-              <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Tổng clicks</span>}
-                value={56789}
-                valueStyle={{ color: '#fff', fontSize: 32 }}
-                prefix={<EyeOutlined style={{ color: '#fff' }} />}
-              />
-            </Col>
-            <Col xs={24} sm={8} style={{ textAlign: 'center' }}>
-              <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Người dùng</span>}
-                value={123}
-                valueStyle={{ color: '#fff', fontSize: 32 }}
-                prefix={<RocketOutlined style={{ color: '#fff' }} />}
-              />
-            </Col>
+        <Card>
+          <Row gutter={[24, 24]}>
+            {stats.map((stat, index) => (
+              <Col xs={24} sm={8} key={index}>
+                <Statistic
+                  title={stat.title}
+                  value={stat.value}
+                  prefix={stat.prefix}
+                  valueStyle={{ color: '#1890ff' }}
+                />
+              </Col>
+            ))}
           </Row>
         </Card>
 
         {/* Features Section */}
         <div style={{ textAlign: 'center' }}>
-          <Title level={2} style={{ marginBottom: 48 }}>
-            Tại sao chọn Shortlink System?
+          <Title level={2} style={{ marginBottom: 16 }}>
+            Tính năng nổi bật
           </Title>
+          <Paragraph style={{ fontSize: 16, color: '#666', marginBottom: 48 }}>
+            Khám phá những tính năng mạnh mẽ giúp bạn quản lý liên kết hiệu quả
+          </Paragraph>
           
           <Row gutter={[32, 32]}>
             {features.map((feature, index) => (
@@ -121,7 +107,9 @@ const HomePage = () => {
                 <Card 
                   hoverable
                   style={{ height: '100%', textAlign: 'center' }}
-                  bodyStyle={{ padding: '32px 24px' }}
+                  styles={{
+                    body: { padding: '32px 24px' }
+                  }}
                 >
                   <div style={{ marginBottom: 16 }}>
                     {feature.icon}
@@ -145,6 +133,9 @@ const HomePage = () => {
             border: '1px solid #bae7ff',
             textAlign: 'center',
             marginBottom: 40
+          }}
+          styles={{
+            body: { padding: '48px 32px' }
           }}
         >
           <Space direction="vertical" size="large">

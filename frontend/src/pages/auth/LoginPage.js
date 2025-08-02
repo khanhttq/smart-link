@@ -1,28 +1,27 @@
-// frontend/src/pages/auth/LoginPage.js - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  Card, 
   Form, 
   Input, 
   Button, 
   Typography, 
+  Space, 
+  Row, 
+  Col, 
+  Card, 
   Divider, 
-  Space,
-  Row,
-  Col,
-  Alert,
-  message
+  message,
+  Checkbox
 } from 'antd';
 import {
-  UserOutlined,
   LockOutlined,
   LoginOutlined,
   GoogleOutlined,
-  LinkOutlined,
-  InfoCircleOutlined
+  MailOutlined
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
+import SmartRegistrationModal from '../../components/SmartRegistrationModal';
+import './LoginPage.less';
 
 const { Title, Text } = Typography;
 
@@ -31,9 +30,16 @@ const LoginPage = () => {
   const location = useLocation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const { login, isAuthenticated } = useAuthStore();
+  const [rememberMe, setRememberMe] = useState(false);
+  
+  const { 
+    login, 
+    isAuthenticated, 
+    showRegistrationModal, 
+    registrationData, 
+    hideSmartRegistration 
+  } = useAuthStore();
 
-  // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
       const redirectTo = location.state?.from?.pathname || '/dashboard';
@@ -43,30 +49,19 @@ const LoginPage = () => {
 
   const handleSubmit = async (values) => {
     setLoading(true);
-    
     try {
-      console.log('🔍 Starting login process...');
-      
       const result = await login(values.email, values.password);
-      
-      console.log('🔍 Login result:', result);
-      
       if (result.success) {
-        console.log('✅ Login successful, navigating to dashboard');
-        
-        // Get redirect path from location state or default to dashboard
         const redirectTo = location.state?.from?.pathname || '/dashboard';
-        
-        // Small delay to let user see success message
+        message.success('Đăng nhập thành công!');
         setTimeout(() => {
           navigate(redirectTo, { replace: true });
         }, 1000);
+      } else if (result.showRegistration) {
+        console.log('Showing smart registration modal');
       }
-      // If login fails, the smart auth system handles showing error/registration modal
-      
     } catch (error) {
-      console.error('🚨 Login exception:', error);
-      message.error('Có lỗi không mong muốn xảy ra. Vui lòng thử lại!');
+      message.error('Đăng nhập thất bại. Vui lòng thử lại!');
     } finally {
       setLoading(false);
     }
@@ -75,67 +70,46 @@ const LoginPage = () => {
   const handleGoogleLogin = () => {
     try {
       const googleUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
-      console.log('🌐 Redirecting to Google OAuth:', googleUrl);
-      
-      // Store current location for redirect after OAuth
       sessionStorage.setItem('oauth_redirect', location.state?.from?.pathname || '/dashboard');
-      
       window.location.href = googleUrl;
     } catch (error) {
-      console.error('🚨 Google login error:', error);
       message.error('Không thể kết nối đến Google. Vui lòng thử lại!');
     }
   };
 
-  // Show loading state during auth check
-  if (isAuthenticated) {
-    return (
-      <Row justify="center" align="middle" style={{ minHeight: '80vh' }}>
-        <Col>
-          <div style={{ textAlign: 'center' }}>
-            <LinkOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-            <Text>Đang chuyển hướng...</Text>
-          </div>
-        </Col>
-      </Row>
-    );
-  }
+  const handleRegistrationSuccess = (result) => {
+    if (result.success) {
+      hideSmartRegistration();
+      const redirectTo = location.state?.from?.pathname || '/dashboard';
+      message.success('Đăng ký thành công!');
+      setTimeout(() => {
+        navigate(redirectTo, { replace: true });
+      }, 1000);
+    }
+  };
 
   return (
-    <Row justify="center" align="middle" style={{ minHeight: '80vh' }}>
-      <Col xs={22} sm={16} md={12} lg={8} xl={6}>
-        <Card style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-          <Space direction="vertical" size="large" style={{ width: '100%', textAlign: 'center' }}>
-            {/* Logo & Title */}
-            <div>
-              <LinkOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-              <Title level={2} style={{ margin: 0 }}>
-                Đăng nhập
-              </Title>
-              <Text type="secondary">
-                Chào mừng đến với Shortlink System
+    <div className="login-page">
+      <Row justify="center" align="middle" className="login-container">
+        <Col xs={22} sm={16} md={12} lg={8}>
+          <Card className="login-card" variant="borderless">
+            <div className="login-header">
+              <Link to="/">
+                <img src="/logo.png" alt="Shortlink System" className="login-logo" />
+              </Link>
+              <Title level={3} className="login-title">Shortlink System</Title>
+              <Text type="secondary" className="login-subtitle">
+                Hệ thống rút gọn liên kết thông minh
               </Text>
             </div>
 
-            {/* Smart Login Info */}
-            <Alert
-              message="🚀 Đăng nhập thông minh"
-              description="Chưa có tài khoản? Không sao! Chúng tôi sẽ tự động tạo tài khoản mới cho bạn."
-              type="info"
-              icon={<InfoCircleOutlined />}
-              showIcon
-              style={{ textAlign: 'left' }}
-            />
-
-            {/* Login Form */}
             <Form
               form={form}
               name="login"
               onFinish={handleSubmit}
-              layout="vertical"
               size="large"
-              style={{ width: '100%' }}
-              autoComplete="on"
+              layout="vertical"
+              className="login-form"
             >
               <Form.Item
                 name="email"
@@ -144,87 +118,85 @@ const LoginPage = () => {
                   { type: 'email', message: 'Email không hợp lệ!' }
                 ]}
               >
-                <Input 
-                  prefix={<UserOutlined />} 
+                <Input
+                  prefix={<MailOutlined />}
                   placeholder="Email"
-                  autoComplete="email"
                 />
               </Form.Item>
 
               <Form.Item
                 name="password"
-                rules={[
-                  { required: true, message: 'Vui lòng nhập mật khẩu!' }
-                ]}
+                rules={[{ required: true, message: 'Vui lòng nhập mật khẩu!' }]}
               >
-                <Input.Password 
-                  prefix={<LockOutlined />} 
+                <Input.Password
+                  prefix={<LockOutlined />}
                   placeholder="Mật khẩu"
-                  autoComplete="current-password"
                 />
               </Form.Item>
 
               <Form.Item>
-                <Button 
-                  type="primary" 
-                  htmlType="submit" 
+                <Space className="login-extras" direction="horizontal" style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <Checkbox
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  >
+                    Ghi nhớ đăng nhập
+                  </Checkbox>
+                  <Link to="/forgot-password">Quên mật khẩu?</Link>
+                </Space>
+              </Form.Item>
+
+              <Form.Item>
+                <Button
+                  type="primary"
+                  htmlType="submit"
                   loading={loading}
-                  icon={<LoginOutlined />}
                   block
-                  size="large"
+                  icon={<LoginOutlined />}
                 >
-                  {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                  Đăng nhập
                 </Button>
               </Form.Item>
             </Form>
 
-            {/* Google Login */}
-            <div style={{ width: '100%' }}>
-              <Divider>
-                <Text type="secondary">hoặc</Text>
-              </Divider>
-              
-              <Button 
-                icon={<GoogleOutlined />}
-                onClick={handleGoogleLogin}
-                loading={loading}
-                block
-                size="large"
-                style={{ 
-                  borderColor: '#db4437',
-                  color: '#db4437'
-                }}
-              >
-                Đăng nhập với Google
-              </Button>
-            </div>
+            <Divider>Hoặc</Divider>
 
-            {/* Register Link */}
-            <div>
-              <Text type="secondary">
-                Muốn tạo tài khoản thủ công? {' '}
-                <Link to="/register" style={{ fontWeight: 500 }}>
-                  Đăng ký tại đây
-                </Link>
-              </Text>
-            </div>
+            <Button
+              icon={<GoogleOutlined />}
+              onClick={handleGoogleLogin}
+              className="social-login-btn"
+              block
+            >
+              Đăng nhập với Google
+            </Button>
 
-            {/* Demo Account Info */}
-            <Alert
-              message="🧪 Tài khoản demo"
-              description={
-                <div>
-                  <div>Email: demo@shortlink.com</div>
-                  <div>Mật khẩu: Demo123!</div>
-                </div>
-              }
-              type="warning"
-              style={{ textAlign: 'left' }}
-            />
-          </Space>
-        </Card>
-      </Col>
-    </Row>
+            <div className="register-link">
+              <Text type="secondary">Chưa có tài khoản? </Text>
+              <Link to="/register">Đăng ký ngay</Link>
+            </div>
+          </Card>
+
+          <div className="login-footer">
+            <Space split={<Divider type="vertical" />}>
+              <Link to="/help">Trợ giúp</Link>
+              <Link to="/privacy">Quyền riêng tư</Link>
+              <Link to="/terms">Điều khoản</Link>
+            </Space>
+            <Text type="secondary" className="copyright">
+              © 2024 Shortlink System. All rights reserved.
+            </Text>
+          </div>
+        </Col>
+      </Row>
+
+      <SmartRegistrationModal
+        visible={showRegistrationModal}
+        onCancel={hideSmartRegistration}
+        email={registrationData?.email}
+        password={registrationData?.password}
+        onSuccess={handleRegistrationSuccess}
+      />
+    </div>
   );
 };
 

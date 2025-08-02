@@ -1,0 +1,110 @@
+.smart-registration-modal {
+  .modal-header {
+    text-align: center;
+    margin-bottom: 24px;
+
+    .header-icon {
+      font-size: 48px;
+      color: #52c41a;
+      margin-bottom: 16px;
+    }
+
+    .header-title {
+      margin: 0;
+      color: #1f1f1f;
+    }
+
+    .header-subtitle {
+      font-size: 14px;
+      display: block;
+      margin-top: 8px;
+    }
+  }
+
+  .smart-alert {
+    margin-bottom: 24px;
+    border: 1px solid #52c41a;
+    background: rgba(82, 196, 26, 0.04);
+  }
+
+  .registration-form {
+    .ant-form-item {
+      margin-bottom: 16px;
+    }
+
+    .ant-input-prefix {
+      color: #bfbfbf;
+    }
+
+    .password-strength {
+      margin-top: 8px;
+    }
+
+    .strength-text {
+      font-size: 12px;
+    }
+
+    .form-actions {
+      margin-bottom: 0;
+      margin-top: 24px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .submit-button {
+      background: linear-gradient(135deg, #52c41a, #389e0d);
+      border: none;
+    }
+  }
+
+  .progress-steps {
+    margin-bottom: 32px;
+  }
+
+  .step-content {
+    text-align: center;
+    padding: 40px 0;
+
+    .processing-icon {
+      font-size: 64px;
+      color: #52c41a;
+      animation: bounce 1s infinite;
+    }
+
+    .success-icon {
+      font-size: 64px;
+      color: #52c41a;
+      margin-bottom: 24px;
+    }
+
+    .step-title {
+      color: #1f1f1f;
+      margin-bottom: 8px;
+    }
+
+    .step-subtitle {
+      font-size: 16px;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar {
+      margin-top: 24px;
+    }
+  }
+
+  @keyframes bounce {
+    0%, 20%, 53%, 80%, 100% {
+      transform: translateY(0);
+    }
+    40%, 43% {
+      transform: translateY(-20px);
+    }
+    70% {
+      transform: translateY(-10px);
+    }
+    90% {
+      transform: translateY(-4px);
+    }
+  }
+}

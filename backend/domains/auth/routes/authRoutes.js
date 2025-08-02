@@ -20,4 +20,7 @@ router.get('/google', oauthController.googleAuth);
 router.get('/google/callback', oauthController.googleCallback);
 router.get('/google/callback/json', oauthController.googleCallbackJson); // For testing
 
+//Check email
+router.post('/check-email', authController.checkEmail);
+
 module.exports = router;
