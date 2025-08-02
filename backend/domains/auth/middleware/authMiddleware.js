@@ -1,11 +1,9 @@
-// backend/domains/auth/middleware/authMiddleware.js - FIXED VERSION
 const authService = require('../services/AuthService');
+const cacheService = require('../../../core/cache/CacheService');
 
 class AuthMiddleware {
-  // Verify JWT token middleware
   async verifyToken(req, res, next) {
     try {
-      // Get token from Authorization header
       const authHeader = req.headers.authorization;
       
       if (!authHeader) {
@@ -15,7 +13,6 @@ class AuthMiddleware {
         });
       }
 
-      // Check if it's Bearer token
       if (!authHeader.startsWith('Bearer ')) {
         return res.status(401).json({
           success: false,
@@ -23,7 +20,6 @@ class AuthMiddleware {
         });
       }
 
-      // Extract token
       const token = authHeader.substring(7);
       
       if (!token) {
@@ -33,10 +29,22 @@ class AuthMiddleware {
         });
       }
 
-      // Verify token and get user
+      // ✅ CRITICAL FIX: Check blacklist FIRST
+      try {
+        const isBlacklisted = await cacheService.get(`blacklist:${token}`);
+        if (isBlacklisted) {
+          console.log('🚫 Blacklisted token blocked:', token.substring(0, 20) + '...');
+          return res.status(401).json({
+            success: false,
+            message: 'Token has been revoked'
+          });
+        }
+      } catch (cacheError) {
+        console.error('❌ Cache check error:', cacheError);
+      }
+
       const user = await authService.verifyToken(token);
       
-      // Attach user and token to request
       req.user = user;
       req.token = token;
       
@@ -49,10 +57,10 @@ class AuthMiddleware {
       let statusCode = 401;
       let message = 'Invalid or expired token';
 
-      if (error.message.includes('revoked')) {
+      if (error.message.includes('revoked') || error.message.includes('blacklisted')) {
         message = 'Token has been revoked';
-      } else if (error.message.includes('invalidated')) {
-        message = 'Token has been invalidated';
+      } else if (error.message.includes('invalidated') || error.message.includes('version')) {
+        message = 'Token has been invalidated. Please login again.';
       } else if (error.message.includes('deactivated')) {
         statusCode = 403;
         message = 'Account has been deactivated';
@@ -68,7 +76,6 @@ class AuthMiddleware {
     }
   }
 
-  // Optional authentication (for routes that work with or without auth)
   async optionalAuth(req, res, next) {
     try {
       const authHeader = req.headers.authorization;
@@ -78,13 +85,15 @@ class AuthMiddleware {
         
         if (token) {
           try {
-            const user = await authService.verifyToken(token);
-            req.user = user;
-            req.token = token;
-            console.log(`✅ Optional auth successful for user: ${user.email}`);
+            const isBlacklisted = await cacheService.get(`blacklist:${token}`);
+            if (!isBlacklisted) {
+              const user = await authService.verifyToken(token);
+              req.user = user;
+              req.token = token;
+              console.log(`✅ Optional auth successful for user: ${user.email}`);
+            }
           } catch (error) {
             console.log('ℹ️ Optional auth failed, continuing without auth:', error.message);
-            // Continue without authentication
           }
         }
       }
@@ -92,14 +101,12 @@ class AuthMiddleware {
       next();
     } catch (error) {
       console.error('❌ Optional auth middleware error:', error);
-      // Continue without authentication even if there's an error
       next();
     }
   }
 
-  // Check if user has specific role
   requireRole(role) {
-    return (req, res, next) => {
+    return async (req, res, next) => {
       try {
         if (!req.user) {
           return res.status(401).json({
@@ -126,7 +133,6 @@ class AuthMiddleware {
     };
   }
 
-  // Check if user has any of the specified roles
   requireAnyRole(roles) {
     return (req, res, next) => {
       try {
@@ -155,12 +161,10 @@ class AuthMiddleware {
     };
   }
 
-  // Admin only middleware
   requireAdmin(req, res, next) {
     return this.requireRole('admin')(req, res, next);
   }
 
-  // Check if user owns the resource or is admin
   checkOwnershipOrAdmin(getResourceOwnerId) {
     return async (req, res, next) => {
       try {
@@ -171,12 +175,10 @@ class AuthMiddleware {
           });
         }
 
-        // Admin can access everything
         if (req.user.role === 'admin') {
           return next();
         }
 
-        // Get resource owner ID
         const resourceOwnerId = await getResourceOwnerId(req);
         
         if (req.user.id !== resourceOwnerId) {
@@ -197,37 +199,38 @@ class AuthMiddleware {
     };
   }
 
-  // Rate limiting middleware (basic implementation)
-  rateLimit(maxRequests = 100, windowMs = 15 * 60 * 1000) { // 100 requests per 15 minutes
+  rateLimit(maxRequests = 100, windowMs = 15 * 60 * 1000) {
     const requests = new Map();
 
     return (req, res, next) => {
-      const key = req.user ? `user:${req.user.id}` : `ip:${req.ip}`;
-      const now = Date.now();
-      const windowStart = now - windowMs;
+      try {
+        const key = req.user ? `user:${req.user.id}` : `ip:${req.ip}`;
+        const now = Date.now();
+        const windowStart = now - windowMs;
 
-      // Clean old entries
-      if (requests.has(key)) {
-        const userRequests = requests.get(key).filter(time => time > windowStart);
-        requests.set(key, userRequests);
+        if (requests.has(key)) {
+          const userRequests = requests.get(key).filter(time => time > windowStart);
+          requests.set(key, userRequests);
+        }
+
+        const currentRequests = requests.get(key) || [];
+        
+        if (currentRequests.length >= maxRequests) {
+          return res.status(429).json({
+            success: false,
+            message: 'Too many requests. Please try again later.',
+            retryAfter: Math.ceil(windowMs / 1000)
+          });
+        }
+
+        currentRequests.push(now);
+        requests.set(key, currentRequests);
+
+        next();
+      } catch (error) {
+        console.error('❌ Rate limit error:', error);
+        next();
       }
-
-      // Get current request count
-      const currentRequests = requests.get(key) || [];
-      
-      if (currentRequests.length >= maxRequests) {
-        return res.status(429).json({
-          success: false,
-          message: 'Too many requests. Please try again later.',
-          retryAfter: Math.ceil(windowMs / 1000)
-        });
-      }
-
-      // Add current request
-      currentRequests.push(now);
-      requests.set(key, currentRequests);
-
-      next();
     };
   }
 }

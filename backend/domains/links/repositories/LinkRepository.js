@@ -134,9 +134,9 @@ class LinkRepository {
         where: { userId },
         attributes: [
           [sequelize.fn('COUNT', sequelize.col('id')), 'totalLinks'],
-          [sequelize.fn('SUM', sequelize.col('clickCount')), 'totalClicks'],
-          [sequelize.fn('AVG', sequelize.col('clickCount')), 'avgClicks'],
-          [sequelize.fn('COUNT', sequelize.literal('CASE WHEN "isActive" = true THEN 1 END')), 'activeLinks'],
+          [sequelize.fn('SUM', sequelize.col('click_count')), 'totalClicks'],
+          [sequelize.fn('AVG', sequelize.col('click_count')), 'avgClicks'],
+          [sequelize.fn('COUNT', sequelize.literal('CASE WHEN "is_active" = true THEN 1 END')), 'activeLinks'],
           [sequelize.fn('COUNT', sequelize.literal('CASE WHEN "campaign" IS NOT NULL THEN 1 END')), 'campaignLinks']
         ],
         raw: true

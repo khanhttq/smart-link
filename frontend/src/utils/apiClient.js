@@ -202,10 +202,10 @@ apiClient.interceptors.response.use(
 const clearAuthAndRedirect = () => {
   console.log('🧹 Clearing auth and redirecting to login...');
   
-  // Clear localStorage
+  // ✅ FIX: Aggressive clear
   try {
-    localStorage.removeItem('auth-storage');
-    sessionStorage.removeItem('auth-storage');
+    localStorage.clear();
+    sessionStorage.clear();
   } catch (error) {
     console.error('Error clearing storage:', error);
   }
@@ -216,10 +216,7 @@ const clearAuthAndRedirect = () => {
   // Show message and redirect
   message.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
   
-  // Delay redirect to show message
-  setTimeout(() => {
-    window.location.href = '/login';
-  }, 1500);
+  // ✅ FIX: Immediate redirect
+  window.location.href = '/login';
 };
-
 export default apiClient;

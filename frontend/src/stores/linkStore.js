@@ -1,7 +1,9 @@
 // frontend/src/stores/linkStore.js - FIXED VERSION
 import { create } from 'zustand';
-import { message } from 'antd';
-import { apiClient } from './authStore'; // Use same apiClient from authStore
+import { persist } from 'zustand/middleware';
+import { useAuthStore } from './authStore';
+import apiClient from '../utils/apiClient'; // ✅ FIXED: Import from utils
+import { message } from 'antd'
 
 // Default stats để tránh null
 const DEFAULT_STATS = {

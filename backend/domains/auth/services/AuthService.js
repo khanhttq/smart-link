@@ -1,148 +1,265 @@
-// backend/domains/auth/services/AuthService.js - FIXED VERSION
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const validator = require('validator');
+const crypto = require('crypto');
 const userRepository = require('../../users/repositories/UserRepository');
 const cacheService = require('../../../core/cache/CacheService');
 const jwtConfig = require('../config/jwt');
+const bcrypt = require('bcryptjs');
 
 class AuthService {
-  // Register new user
-  async register(userData) {
-    const { email, password, name } = userData;
-
+  async verifyToken(token) {
     try {
-      // Validate input data
-      if (!email || !password || !name) {
-        throw new Error('Email, password, and name are required');
+      const isBlacklisted = await cacheService.get(`blacklist:${token}`);
+      if (isBlacklisted) {
+        throw new Error('Token has been revoked');
       }
 
-      // Sanitize and validate email
-      const sanitizedEmail = validator.normalizeEmail(email.toLowerCase().trim());
-      if (!sanitizedEmail || !validator.isEmail(sanitizedEmail)) {
-        throw new Error('Invalid email format');
+      const decoded = jwt.verify(token, jwtConfig.secret);
+      
+      if (decoded.type !== jwtConfig.tokenTypes.ACCESS) {
+        throw new Error('Invalid token type');
       }
 
-      // Sanitize name
-      const sanitizedName = name.trim().replace(/[^a-zA-Z0-9\s-]/g, '');
-      if (sanitizedName.length < 2) {
-        throw new Error('Name must be at least 2 characters long');
-      }
-
-      // Validate password strength
-      if (!this.validatePassword(password)) {
-        throw new Error('Password must be at least 8 characters with uppercase, lowercase, and number');
-      }
-
-      // Check if user already exists
-      const existingUser = await userRepository.findByEmail(sanitizedEmail);
-      if (existingUser) {
-        throw new Error('User already exists with this email');
-      }
-
-      // Create user (password will be hashed in User model hook)
-      const user = await userRepository.create({
-        email: sanitizedEmail,
-        password,
-        name: sanitizedName,
-        role: 'user',
-        isActive: true,
-        isEmailVerified: false,
-      });
-
-      // Generate tokens
-      const tokens = await this.generateTokens(user);
-
-      // Create session
-      const sessionId = await this.createSession(user, tokens);
-
-      console.log(`✅ User registered successfully: ${user.email}`);
-      return {
-        user: this.sanitizeUser(user),
-        tokens,
-        sessionId,
-      };
-    } catch (error) {
-      console.error('❌ Registration error:', error);
-      throw error;
-    }
-  }
-
-  // Login user
-  async login(email, password) {
-    try {
-      // Rate limiting check
-      const rateLimitKey = `login:attempt:${email.toLowerCase()}`;
-      const attempts = (await cacheService.get(rateLimitKey)) || 0;
-      if (attempts >= 5) {
-        throw new Error('Too many login attempts, please try again later');
-      }
-
-      // Increment attempt counter (expires in 15 minutes)
-      await cacheService.set(rateLimitKey, parseInt(attempts) + 1, 15 * 60);
-
-      // Validate input
-      if (!email || !password) {
-        throw new Error('Email and password are required');
-      }
-
-      // Find user
-      const user = await userRepository.findByEmail(email.toLowerCase());
+      const user = await userRepository.findById(decoded.userId);
       if (!user) {
-        throw new Error('Invalid credentials');
+        throw new Error('User not found');
       }
 
-      // Check if user is active
       if (!user.isActive) {
         throw new Error('Account is deactivated');
       }
 
-      // Verify password
-      const isValidPassword = await user.comparePassword(password);
+      const userTokenVersion = user.tokenVersion || 0;
+      const decodedTokenVersion = decoded.tokenVersion || 0;
+      
+      if (userTokenVersion !== decodedTokenVersion) {
+        console.log(`🔄 Token version mismatch: User=${userTokenVersion}, Token=${decodedTokenVersion}`);
+        throw new Error('Token version mismatch - invalidated');
+      }
+
+      return this.sanitizeUser(user);
+    } catch (error) {
+      console.error('❌ Token verification error:', error.message);
+      throw error;
+    }
+  }
+
+  async createSession(user, tokens, req = {}) {
+    try {
+      const sessionId = crypto.randomBytes(32).toString('hex');
+      
+      const sessionData = {
+        userId: user.id,
+        email: user.email,
+        tokens,
+        createdAt: new Date(),
+        lastActivity: new Date(),
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.get?.('User-Agent') || 'unknown'
+      };
+
+      const sessionTTL = jwtConfig.expirationTimes.session || (7 * 24 * 60 * 60);
+      await cacheService.set(`session:${sessionId}`, JSON.stringify(sessionData), sessionTTL);
+      
+      console.log(`📦 Created secure session: ${sessionId.substring(0, 8)}...`);
+      return sessionId;
+    } catch (error) {
+      console.error('❌ Session creation error:', error);
+      throw new Error('Failed to create session');
+    }
+  }
+// Thêm function này vào AuthService class:
+async register(userData) {
+  const { email, password, name } = userData;
+
+  try {
+    console.log('👤 REGISTER SERVICE:', { email, name });
+
+    // Validate input data
+    if (!email || !password || !name) {
+      throw new Error('Email, password, and name are required');
+    }
+
+    // Sanitize email
+    const sanitizedEmail = email.toLowerCase().trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sanitizedEmail)) {
+      throw new Error('Invalid email format');
+    }
+
+    // Sanitize name
+    const sanitizedName = name.trim();
+    if (sanitizedName.length < 2) {
+      throw new Error('Name must be at least 2 characters long');
+    }
+
+    // Validate password strength
+    if (!this.validatePassword(password)) {
+      throw new Error('Password must be at least 8 characters with uppercase, lowercase, and number');
+    }
+
+    // Check if user already exists
+    const existingUser = await userRepository.findByEmail(sanitizedEmail);
+    if (existingUser) {
+      throw new Error('User already exists with this email');
+    }
+
+    // Create user (password will be hashed in User model hook)
+    const user = await userRepository.create({
+      email: sanitizedEmail,
+      password,
+      name: sanitizedName,
+      role: 'user',
+      isActive: true,
+      isEmailVerified: false,
+    });
+
+    console.log('✅ USER CREATED:', user.email);
+
+    // Generate tokens
+    const tokens = await this.generateTokens(user);
+
+    // Create session
+    const sessionId = await this.createSession(user, tokens);
+
+    console.log(`✅ User registered successfully: ${user.email}`);
+    return {
+      user: this.sanitizeUser(user),
+      tokens,
+      sessionId,
+    };
+  } catch (error) {
+    console.error('❌ Registration error:', error);
+    throw error;
+  }
+}
+
+async login(email, password, req = {}) {
+  try {
+    // Normalize and validate email
+    if (!email || typeof email !== 'string') {
+      console.log('❌ VALIDATION: Invalid or missing email');
+        throw new Error('Valid email is required');
+      }
+      const normalizedEmail = email.toLowerCase().trim();
+      
+      // Validate password presence
+      if (!password || typeof password !== 'string') {
+        console.log('❌ VALIDATION: Missing or invalid password');
+        throw new Error('Password is required');
+      }
+
+      // ✅ Enhanced logging for login attempt
+      console.log('🔑 LOGIN ATTEMPT:', { 
+        email: normalizedEmail, 
+        passwordProvided: !!password,
+        passwordLength: password.length,
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.get?.('User-Agent') || 'unknown'
+      });
+
+      // Enhanced rate limiting with IP consideration
+      const rateLimitKey = `login:attempt:${normalizedEmail}:${req.ip || 'unknown'}`;
+      const attempts = parseInt(await cacheService.get(rateLimitKey) || 0);
+      
+      if (attempts >= 5) {
+        console.log('❌ RATE LIMIT: Too many login attempts', { email: normalizedEmail, attempts });
+        throw new Error('Too many login attempts. Please try again in 15 minutes');
+      }
+
+      // Increment rate limit counter
+      await cacheService.set(rateLimitKey, attempts + 1, 15 * 60);
+
+      // Find user by email
+      console.log('🔍 SEARCHING for user:', normalizedEmail);
+      const user = await userRepository.findByEmail(normalizedEmail);
+      
+      // ✅ Detailed user logging
+      console.log('👤 USER RESULT:', { 
+        userFound: !!user,
+        userEmail: user?.email,
+        userActive: user?.isActive,
+        hasPassword: !!user?.password,
+        passwordLength: user?.password?.length
+      });
+
+      if (!user) {
+        console.log('❌ USER NOT FOUND in database');
+        throw new Error('Invalid credentials');
+      }
+
+      if (!user.isActive) {
+        console.log('❌ USER ACCOUNT DEACTIVATED');
+        throw new Error('Account is deactivated');
+      }
+
+      // Check if user has a password (for OAuth users)
+      if (!user.password) {
+        console.log('❌ USER HAS NO PASSWORD (OAuth user?)');
+        throw new Error('Invalid credentials');
+      }
+
+      // Validate password complexity before comparison
+      if (!this.validatePassword(password)) {
+        console.log('❌ PASSWORD COMPLEXITY VALIDATION FAILED');
+        throw new Error('Invalid credentials');
+      }
+
+      // Password comparison
+      console.log('🔐 COMPARING PASSWORDS...');
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      
+      console.log('🔐 PASSWORD COMPARISON RESULT:', isValidPassword);
+      
       if (!isValidPassword) {
+        console.log('❌ PASSWORD MISMATCH');
         throw new Error('Invalid credentials');
       }
 
       // Clear rate limit on successful login
+      console.log('✅ LOGIN SUCCESS - Clearing rate limit');
       await cacheService.del(rateLimitKey);
-      console.log(`🗑️ Cleared rate limit key: ${rateLimitKey}`);
-
-      // Update last seen
+      
+      // Update last seen timestamp
       await userRepository.updateLastSeen(user.id);
 
-      // Generate tokens
+      // Generate tokens and create session
+      console.log('🎫 GENERATING TOKENS...');
       const tokens = await this.generateTokens(user);
+      
+      console.log('📦 CREATING SESSION...');
+      const sessionId = await this.createSession(user, tokens, req);
 
-      // Create session
-      const sessionId = await this.createSession(user, tokens);
-
-      console.log(`✅ User logged in successfully: ${user.email}`);
+      console.log(`✅ LOGIN COMPLETED for user: ${user.email}`);
       return {
         user: this.sanitizeUser(user),
         tokens,
         sessionId,
       };
     } catch (error) {
-      console.error('❌ Login error:', error);
+      console.error('❌ LOGIN ERROR:', error.message);
+      console.error('❌ LOGIN ERROR STACK:', error.stack);
+      
+      // Ensure rate limit isn't cleared for specific errors
+      if (error.message !== 'Invalid credentials' && 
+          error.message !== 'Account is deactivated' && 
+          error.message !== 'Too many login attempts. Please try again in 15 minutes') {
+        const rateLimitKey = `login:attempt:${email?.toLowerCase()?.trim()}:${req.ip || 'unknown'}`;
+        await cacheService.del(rateLimitKey);
+      }
+      
       throw error;
     }
   }
 
-  // ===== FIX: Enhanced logout with proper cleanup =====
   async logout(token, sessionId) {
     try {
-      console.log('🚪 Logging out user...');
+      console.log('🚪 Enhanced logout process starting...');
       let userId = null;
-      let userEmail = null;
 
-      // Get user ID from token before blacklisting
       if (token) {
         try {
           const decoded = jwt.decode(token);
           userId = decoded?.userId;
-          userEmail = decoded?.email;
 
-          // Blacklist the token
           if (decoded && decoded.exp) {
             const ttl = decoded.exp - Math.floor(Date.now() / 1000);
             if (ttl > 0) {
@@ -155,71 +272,164 @@ class AuthService {
         }
       }
 
-      // Remove session
       if (sessionId) {
         try {
-          await cacheService.del(`session:${sessionId}`);
-          console.log('🗑️ Session removed:', `session:${sessionId}`);
+          const sessionData = await cacheService.get(`session:${sessionId}`);
+          if (sessionData) {
+            const session = JSON.parse(sessionData);
+            
+            if (session.tokens?.accessToken) {
+              const decoded = jwt.decode(session.tokens.accessToken);
+              if (decoded?.exp) {
+                const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+                if (ttl > 0) {
+                  await cacheService.set(`blacklist:${session.tokens.accessToken}`, 'true', ttl);
+                }
+              }
+            }
+            
+            if (session.tokens?.refreshToken) {
+              const decoded = jwt.decode(session.tokens.refreshToken);
+              if (decoded?.exp) {
+                const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+                if (ttl > 0) {
+                  await cacheService.set(`blacklist:${session.tokens.refreshToken}`, 'true', ttl);
+                }
+              }
+            }
+            
+            await cacheService.del(`session:${sessionId}`);
+            console.log('🗑️ Session cleaned up');
+          }
         } catch (error) {
-          console.error('Error removing session:', error);
+          console.error('Error cleaning up session:', error);
         }
       }
 
-      console.log('✅ Logout completed successfully');
+      console.log('✅ Enhanced logout completed');
       return true;
     } catch (error) {
-      console.error('❌ Logout error:', error);
+      console.error('❌ Enhanced logout error:', error);
+      throw error;
+    }
+    if (userId && userEmail) {
+  // ✅ CLEAR USER CACHE
+      await cacheService.del(`user:id:${userId}`);
+      await cacheService.del(`user:email:${userEmail}`);
+      console.log('🧹 Cleared user cache');
+    }
+  }
+
+  async logoutAll(userId) {
+    try {
+      console.log(`🚪 Enhanced logout all devices for user: ${userId}`);
+
+      const user = await userRepository.findById(userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const newTokenVersion = (user.tokenVersion || 0) + 1;
+      
+      await userRepository.update(userId, {
+        tokenVersion: newTokenVersion,
+        lastSeenAt: new Date(),
+        lastLogoutAt: new Date()
+      });
+      
+      console.log(`🔄 Token version updated: ${user.tokenVersion || 0} → ${newTokenVersion}`);
+
+      const sessionKeys = await cacheService.keys(`session:*`);
+      let cleanedSessions = 0;
+      
+      for (const sessionKey of sessionKeys) {
+        try {
+          const sessionDataRaw = await cacheService.get(sessionKey);
+          if (!sessionDataRaw) continue;
+          
+          const sessionData = JSON.parse(sessionDataRaw);
+          
+          if (sessionData.userId === userId) {
+            if (sessionData.tokens?.accessToken) {
+              const decoded = jwt.decode(sessionData.tokens.accessToken);
+              if (decoded?.exp) {
+                const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+                if (ttl > 0) {
+                  await cacheService.set(`blacklist:${sessionData.tokens.accessToken}`, 'true', ttl);
+                }
+              }
+            }
+            
+            if (sessionData.tokens?.refreshToken) {
+              const decoded = jwt.decode(sessionData.tokens.refreshToken);
+              if (decoded?.exp) {
+                const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+                if (ttl > 0) {
+                  await cacheService.set(`blacklist:${sessionData.tokens.refreshToken}`, 'true', ttl);
+                }
+              }
+            }
+            
+            await cacheService.del(sessionKey);
+            cleanedSessions++;
+          }
+        } catch (error) {
+          console.error(`Error processing session ${sessionKey}:`, error);
+        }
+      }
+
+      console.log(`✅ Logout all completed: ${cleanedSessions} sessions cleaned`);
+      return { 
+        success: true, 
+        sessionsInvalidated: cleanedSessions,
+        newTokenVersion 
+      };
+    } catch (error) {
+      console.error('❌ Logout all error:', error);
       throw error;
     }
   }
 
-  // ===== FIX: Better refresh token handling =====
   async refreshTokens(refreshToken) {
     try {
       if (!refreshToken) {
         throw new Error('Refresh token is required');
       }
 
-      // Check if refresh token is blacklisted first
       const isBlacklisted = await cacheService.get(`blacklist:${refreshToken}`);
       if (isBlacklisted) {
         console.log('❌ Refresh token is blacklisted');
         throw new Error('Token has been invalidated');
       }
 
-      // Verify refresh token
       const decoded = jwt.verify(refreshToken, jwtConfig.secret);
       if (decoded.type !== jwtConfig.tokenTypes.REFRESH) {
         throw new Error('Invalid token type');
       }
 
-      // Find user
       const user = await userRepository.findById(decoded.userId);
       if (!user) {
         throw new Error('User not found');
       }
 
-      // Check if user is active
       if (!user.isActive) {
         throw new Error('Account is deactivated');
       }
 
-      // ===== FIX: Check token version if exists =====
-      if (user.tokenVersion !== undefined && decoded.tokenVersion !== undefined) {
-        if (decoded.tokenVersion !== user.tokenVersion) {
-          console.log('❌ Token version mismatch');
-          throw new Error('Token has been invalidated');
-        }
+      const userTokenVersion = user.tokenVersion || 0;
+      const decodedTokenVersion = decoded.tokenVersion || 0;
+      
+      if (userTokenVersion !== decodedTokenVersion) {
+        console.log('❌ Token version mismatch');
+        throw new Error('Token has been invalidated');
       }
 
-      // ===== FIX: Blacklist old refresh token immediately =====
       const oldTokenTtl = decoded.exp - Math.floor(Date.now() / 1000);
       if (oldTokenTtl > 0) {
         await cacheService.set(`blacklist:${refreshToken}`, 'true', oldTokenTtl);
         console.log('🚫 Old refresh token blacklisted');
       }
 
-      // Generate new tokens
       const tokens = await this.generateTokens(user);
 
       console.log(`✅ Tokens refreshed for user: ${user.email}`);
@@ -227,7 +437,6 @@ class AuthService {
     } catch (error) {
       console.error('❌ Token refresh error:', error);
       
-      // ===== FIX: Blacklist invalid refresh token =====
       if (refreshToken) {
         try {
           const decoded = jwt.decode(refreshToken);
@@ -239,7 +448,7 @@ class AuthService {
             }
           }
         } catch (decodeError) {
-          // Token is completely invalid, can't decode
+          // Token is invalid
         }
       }
       
@@ -247,7 +456,6 @@ class AuthService {
     }
   }
 
-  // Generate JWT tokens with better payload
   async generateTokens(user) {
     const now = Math.floor(Date.now() / 1000);
     const tokenVersion = user.tokenVersion || 0;
@@ -287,153 +495,22 @@ class AuthService {
     };
   }
 
-  // Create session
-  async createSession(user, tokens) {
-    const sessionId = `${user.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const sessionData = {
-      userId: user.id,
-      email: user.email,
-      tokens,
-      createdAt: new Date(),
-      lastActivity: new Date(),
-    };
-
-    // Store session with configurable TTL
-    await cacheService.set(`session:${sessionId}`, JSON.stringify(sessionData), jwtConfig.expirationTimes.session);
-    console.log(`📦 Created session: session:${sessionId}`);
-
-    return sessionId;
-  }
-
-  // ===== FIX: Enhanced token verification =====
-  async verifyToken(token) {
-    try {
-      // Check if token is blacklisted first
-      const isBlacklisted = await cacheService.get(`blacklist:${token}`);
-      if (isBlacklisted) {
-        throw new Error('Token has been revoked');
-      }
-
-      // Verify token
-      const decoded = jwt.verify(token, jwtConfig.secret);
-      if (decoded.type !== jwtConfig.tokenTypes.ACCESS) {
-        throw new Error('Invalid token type');
-      }
-
-      // Find user
-      const user = await userRepository.findById(decoded.userId);
-      if (!user) {
-        throw new Error('User not found');
-      }
-
-      // Check if user is active
-      if (!user.isActive) {
-        throw new Error('Account is deactivated');
-      }
-
-      // Check token version if exists
-      if (user.tokenVersion !== undefined && decoded.tokenVersion !== undefined) {
-        if (decoded.tokenVersion !== user.tokenVersion) {
-          throw new Error('Token has been invalidated');
-        }
-      }
-
-      return this.sanitizeUser(user);
-    } catch (error) {
-      console.error('❌ Token verification error:', error);
-      throw error;
-    }
-  }
-
-  // Logout from all devices
-  async logoutAll(userId) {
-    try {
-      console.log(`🚪 Logging out user ${userId} from all devices...`);
-
-      // Update token version to invalidate all tokens
-      const user = await userRepository.findById(userId);
-      if (user) {
-        await userRepository.update(userId, {
-          tokenVersion: (user.tokenVersion || 0) + 1,
-          lastSeenAt: new Date(),
-        });
-        console.log('🔄 Token version updated');
-      }
-
-      // Get all sessions for this user and blacklist their tokens
-      const sessionKeys = await cacheService.keys(`session:*`);
-      console.log(`🔍 Found ${sessionKeys.length} session keys`);
-      
-      for (const sessionKey of sessionKeys) {
-        try {
-          const sessionDataRaw = await cacheService.get(sessionKey);
-          const sessionData = sessionDataRaw ? JSON.parse(sessionDataRaw) : null;
-          
-          if (sessionData && sessionData.userId === userId) {
-            // Blacklist tokens if they exist
-            if (sessionData.tokens?.accessToken) {
-              const decoded = jwt.decode(sessionData.tokens.accessToken);
-              if (decoded && decoded.exp) {
-                const ttl = decoded.exp - Math.floor(Date.now() / 1000);
-                if (ttl > 0) {
-                  await cacheService.set(`blacklist:${sessionData.tokens.accessToken}`, 'true', ttl);
-                }
-              }
-            }
-            
-            if (sessionData.tokens?.refreshToken) {
-              const decoded = jwt.decode(sessionData.tokens.refreshToken);
-              if (decoded && decoded.exp) {
-                const ttl = decoded.exp - Math.floor(Date.now() / 1000);
-                if (ttl > 0) {
-                  await cacheService.set(`blacklist:${sessionData.tokens.refreshToken}`, 'true', ttl);
-                }
-              }
-            }
-            
-            // Remove session
-            await cacheService.del(sessionKey);
-            console.log(`🗑️ Cleared session: ${sessionKey}`);
-          }
-        } catch (error) {
-          console.error(`Error processing session ${sessionKey}:`, error);
-        }
-      }
-
-      console.log(`✅ Logout all completed for user: ${userId}`);
-      return true;
-    } catch (error) {
-      console.error('❌ Logout all error:', error);
-      throw error;
-    }
-  }
-
-  // Validate password strength
   validatePassword(password) {
     if (!password || password.length < 8) {
       return false;
     }
-
-    // Check for at least one lowercase letter
     if (!/[a-z]/.test(password)) {
       return false;
     }
-
-    // Check for at least one uppercase letter
     if (!/[A-Z]/.test(password)) {
       return false;
     }
-
-    // Check for at least one number
     if (!/\d/.test(password)) {
       return false;
     }
-
     return true;
   }
 
-  // Sanitize user data (remove sensitive fields)
   sanitizeUser(user) {
     const { password, tokenVersion, ...sanitized } = user.toJSON ? user.toJSON() : user;
     return sanitized;

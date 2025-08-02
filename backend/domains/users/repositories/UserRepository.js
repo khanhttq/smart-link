@@ -9,22 +9,19 @@ class UserRepository {
     return user;
   }
 
-  // Find user by email (with cache)
-  async findByEmail(email) {
-    const cacheKey = `user:email:${email}`;
-    
-    return await cacheService.getOrSet(cacheKey, async () => {
-      return await User.findOne({
-        where: { email },
-        include: [{
-          model: ApiKey,
-          as: 'apiKeys',
-          where: { isActive: true },
-          required: false
-        }]
-      });
-    }, 1800); // Cache for 30 minutes
-  }
+
+async findByEmail(email) {
+  // ✅ FIX: TẮT CACHE CHO LOGIN (để debug)
+  return await User.findOne({
+    where: { email },
+    include: [{
+      model: ApiKey,
+      as: 'apiKeys',
+      where: { isActive: true },
+      required: false
+    }]
+  });
+}
 
   // Find user by ID (with cache)
   async findById(id) {

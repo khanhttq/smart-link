@@ -1,4 +1,4 @@
-// frontend/src/components/auth/ProtectedRoute.js - Updated version
+// frontend/src/components/auth/ProtectedRoute.js - FIXED VERSION
 import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Result, Button, Spin, Alert } from 'antd';
@@ -16,35 +16,24 @@ const ProtectedRoute = ({
     isAuthenticated, 
     loading, 
     checkAuth,
-    isSessionNearExpiry,
-    getTimeUntilExpiry,
-    refreshToken
+    sessionExpiresAt
   } = useAuthStore();
   
   const location = useLocation();
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
 
-  // Auto-refresh token if session is near expiry
-  useEffect(() => {
-    if (isAuthenticated && isSessionNearExpiry() && !sessionWarningShown) {
-      setSessionWarningShown(true);
-      
-      const timeLeft = getTimeUntilExpiry();
-      const minutesLeft = Math.floor(timeLeft / (1000 * 60));
-      
-      if (minutesLeft <= 5 && minutesLeft > 0) {
-        // Try to refresh token automatically
-        refreshToken().then(result => {
-          if (result.success) {
-            console.log('✅ Token auto-refreshed successfully');
-            setSessionWarningShown(false);
-          }
-        }).catch(error => {
-          console.error('❌ Auto token refresh failed:', error);
-        });
-      }
-    }
-  }, [isAuthenticated, isSessionNearExpiry, sessionWarningShown, getTimeUntilExpiry, refreshToken]);
+  // ✅ FIXED: Create utility functions locally
+  const isSessionNearExpiry = () => {
+    if (!sessionExpiresAt) return false;
+    const fiveMinutes = 5 * 60 * 1000;
+    const timeLeft = new Date(sessionExpiresAt) - new Date();
+    return timeLeft <= fiveMinutes && timeLeft > 0;
+  };
+
+  const getTimeUntilExpiry = () => {
+    if (!sessionExpiresAt) return null;
+    return new Date(sessionExpiresAt) - new Date();
+  };
 
   // Check auth on mount if not already authenticated
   useEffect(() => {
@@ -117,7 +106,7 @@ const ProtectedRoute = ({
     }
   }
 
-  // Show session expiry warning if applicable
+  // ✅ FIXED: Render session warning safely
   const renderSessionWarning = () => {
     if (!isAuthenticated || !isSessionNearExpiry()) return null;
     
@@ -128,33 +117,17 @@ const ProtectedRoute = ({
       return (
         <Alert
           message="Phiên đăng nhập sắp hết hạn"
-          description={`Phiên của bạn sẽ hết hạn sau ${minutesLeft} phút. Hệ thống sẽ tự động gia hạn.`}
+          description={`Phiên của bạn sẽ hết hạn sau ${minutesLeft} phút.`}
           type="warning"
           showIcon
+          closable
           style={{ marginBottom: 16 }}
-          action={
-            <Button 
-              size="small" 
-              type="ghost" 
-              onClick={() => {
-                refreshToken().then(result => {
-                  if (result.success) {
-                    setSessionWarningShown(false);
-                  }
-                });
-              }}
-            >
-              Gia hạn ngay
-            </Button>
-          }
         />
       );
     }
-    
     return null;
   };
 
-  // Render children with optional session warning
   return (
     <>
       {renderSessionWarning()}
@@ -163,7 +136,7 @@ const ProtectedRoute = ({
   );
 };
 
-// Role-specific route components for convenience
+// ✅ FIXED: Simple role-based route components
 export const AdminRoute = ({ children, ...props }) => (
   <ProtectedRoute requiredRole="admin" {...props}>
     {children}
@@ -176,7 +149,6 @@ export const EditorRoute = ({ children, ...props }) => (
   </ProtectedRoute>
 );
 
-// Guest route component (redirect authenticated users)
 export const GuestRoute = ({ children, redirectTo = '/dashboard' }) => {
   const { isAuthenticated, loading } = useAuthStore();
 
@@ -192,7 +164,7 @@ export const GuestRoute = ({ children, redirectTo = '/dashboard' }) => {
       }}>
         <Spin size="large" />
         <div style={{ color: '#666', fontSize: 16 }}>
-          Đang tải...
+          Đang kiểm tra xác thực...
         </div>
       </div>
     );
