@@ -1,13 +1,4 @@
-// backend/domains/links/services/LinkService.js - ElasticSearch Integration
-const { Link, Domain, Click, sequelize } = require('../../../models');
-const { Op } = require('sequelize');
-const moment = require('moment');
-const crypto = require('crypto');
-const axios = require('axios');
-
-// Import ElasticSearch services
-const clickTrackingService = require('../../analytics/services/ClickTrackingService');
-const queueService = require('../../../core/queue/QueueService');
+// backend/domains/links/services/LinkService.js - ElasticSearch Integration (FIXED)
 const { Link, Domain, Click, sequelize } = require('../../../models');
 const { Op } = require('sequelize');
 const moment = require('moment');
@@ -39,6 +30,87 @@ class LinkService {
     }
   }
 
+  async ensureInitialized() {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+  }
+
+  /**
+   * Create new shortened link with optional custom domain
+   */
+  async createLink(userId, linkData) {
+    try {
+      await this.ensureInitialized();
+
+      const { 
+        originalUrl, 
+        customCode, 
+        title, 
+        description, 
+        campaign, 
+        tags = [], 
+        domainId = null,
+        password = null,
+        expiresAt = null,
+        utmParameters = {},
+        geoRestrictions = {}
+      } = linkData;
+
+      // Validate URL
+      if (!this.isValidUrl(originalUrl)) {
+        throw new Error('Invalid URL format');
+      }
+
+      // Generate short code
+      let shortCode = customCode;
+      if (!shortCode) {
+        shortCode = await this.generateUniqueShortCode(domainId);
+      } else {
+        // Check if custom code is available
+        const existing = await Link.findByShortCodeAndDomain(shortCode, domainId);
+        if (existing) {
+          throw new Error('Custom short code already exists');
+        }
+      }
+
+      // Create link
+      const link = await Link.create({
+        userId,
+        domainId,
+        originalUrl,
+        shortCode,
+        customCode,
+        title,
+        description,
+        campaign,
+        tags,
+        password: password ? await this.hashPassword(password) : null,
+        expiresAt,
+        utmParameters,
+        geoRestrictions,
+        isActive: true,
+        clickCount: 0,
+        uniqueClickCount: 0
+      });
+
+      // Fetch with associations
+      const result = await Link.findByPk(link.id, {
+        include: [{
+          model: Domain,
+          as: 'domain'
+        }]
+      });
+
+      console.log(`✅ Link created: ${result.shortCode} -> ${originalUrl}`);
+      return result;
+
+    } catch (error) {
+      console.error('❌ Create link error:', error);
+      throw error;
+    }
+  }
+
   /**
    * Process click and track in both PostgreSQL and ElasticSearch
    */
@@ -47,127 +119,40 @@ class LinkService {
       await this.ensureInitialized();
 
       // Find link by shortCode and domain
-      const whereClause = { shortCode };
+      const link = await Link.findByShortCodeAndDomain(shortCode, customDomain);
       
-      let link;
-      if (customDomain) {
-        // Custom domain - must match exactly
-        link = await Link.findOne({
-          where: whereClause,
-          include: [{
-            model: Domain,
-            as: 'domain',
-            where: { domain: customDomain, isVerified: true },
-            required: true
-          }]
-        });
-      } else {
-        // System domain - no domain association or default domain
-        link = await Link.findOne({
-          where: whereClause,
-          include: [{
-            model: Domain,
-            as: 'domain',
-            required: false
-          }]
-        });
-      }
-
       if (!link) {
-        console.log(`❌ Link not found: ${customDomain || 'system'}/${shortCode}`);
-        return null;
+        throw new Error('Link not found');
       }
 
-      // Check if link is active
+      // Check if link is active and not expired
       if (!link.isActive) {
-        console.log(`⛔ Link inactive: ${shortCode}`);
-        return { blocked: true, reason: 'Link is inactive' };
+        throw new Error('Link is inactive');
       }
 
-      // Check expiration
       if (link.expiresAt && new Date() > link.expiresAt) {
-        console.log(`⏰ Link expired: ${shortCode}`);
-        return { blocked: true, reason: 'Link has expired' };
+        throw new Error('Link has expired');
       }
 
-      // Check password protection
-      if (link.password) {
-        return { passwordRequired: true, linkId: link.id };
+      // Check password if required
+      if (link.password && !clickData.password) {
+        throw new Error('Password required');
       }
 
-      // Enhanced click data for tracking
-      const enhancedClickData = {
-        linkId: link.id,
-        userId: link.userId,
-        shortCode: link.shortCode,
-        originalUrl: link.originalUrl,
-        campaign: link.campaign,
-        domain: customDomain || 'system',
-        ipAddress: clickData.ipAddress,
-        userAgent: clickData.userAgent,
-        referrer: clickData.referrer,
-        country: userLocation?.country || 'Unknown',
-        city: userLocation?.city || 'Unknown',
-        deviceType: this.detectDeviceType(clickData.userAgent),
-        browser: this.detectBrowser(clickData.userAgent),
-        os: this.detectOS(clickData.userAgent),
-        timestamp: clickData.timestamp || new Date()
-      };
-
-      // Track click in multiple places
-      await this.trackClick(link, enhancedClickData, userLocation);
-
-      // Build final URL with UTM parameters
-      const finalUrl = this.buildFinalUrl(link);
-
-      // Trigger webhook if configured (async)
-      if (link.webhookUrl) {
-        setImmediate(() => {
-          this.triggerWebhook(link.webhookUrl, {
-            event: 'click',
-            link: {
-              id: link.id,
-              shortCode: link.shortCode,
-              originalUrl: link.originalUrl,
-              domain: customDomain || 'system'
-            },
-            click: enhancedClickData,
-            timestamp: new Date()
-          });
-        });
-      }
-
-      console.log(`✅ Click processed: ${customDomain || 'system'}/${shortCode} -> ${finalUrl}`);
-
-      return {
-        originalUrl: finalUrl,
-        link: {
-          id: link.id,
-          title: link.title,
-          shortCode: link.shortCode,
-          domain: customDomain || 'system'
+      if (link.password && clickData.password) {
+        const isValidPassword = await this.verifyPassword(clickData.password, link.password);
+        if (!isValidPassword) {
+          throw new Error('Invalid password');
         }
-      };
+      }
 
-    } catch (error) {
-      console.error('❌ ProcessClick error:', error);
-      return null;
-    }
-  }
+      // Check geo restrictions
+      if (!link.isAccessibleFromLocation(userLocation)) {
+        throw new Error('Access denied from this location');
+      }
 
-  /**
-   * Track click in both PostgreSQL and ElasticSearch
-   */
-  async trackClick(link, clickData, userLocation) {
-    try {
-      // 1. PostgreSQL tracking (for data consistency)
-      const isUnique = !(await Click.findOne({
-        where: {
-          linkId: link.id,
-          ipAddress: clickData.ipAddress
-        },
-        paranoid: false
-      }));
+      // Check if this is a unique click (by IP)
+      const isUnique = await this.isUniqueClick(link.id, clickData.ipAddress);
 
       // Create click record in PostgreSQL
       const postgresClick = await Click.create({
@@ -175,31 +160,49 @@ class LinkService {
         ipAddress: clickData.ipAddress,
         userAgent: clickData.userAgent,
         referrer: clickData.referrer,
-        country: clickData.country,
-        city: clickData.city,
+        country: userLocation?.country,
+        city: userLocation?.city,
         deviceType: clickData.deviceType,
         browser: clickData.browser,
-        os: clickData.os,
-        timestamp: clickData.timestamp
+        os: clickData.os
       });
 
-      // Update link statistics in PostgreSQL
+      // Update link statistics
       await this.updateLinkStats(link, isUnique);
 
-      // 2. ElasticSearch tracking (for analytics)
+      // Track in ElasticSearch (for analytics)
       try {
         // Queue for batch processing (more efficient)
         if (queueService && queueService.isInitialized) {
-          await queueService.queueClickTracking(clickData.linkId, clickData);
+          await queueService.queueClickTracking(link.id, {
+            ...clickData,
+            linkId: link.id,
+            shortCode: link.shortCode,
+            domain: link.domain?.domain || 'system',
+            ...userLocation
+          });
         } else {
           // Direct tracking if queue not available
-          await clickTrackingService.trackClick(clickData);
+          await clickTrackingService.trackClick({
+            linkId: link.id,
+            shortCode: link.shortCode,
+            domain: link.domain?.domain || 'system',
+            ...clickData,
+            ...userLocation
+          });
         }
       } catch (esError) {
         console.warn('⚠️ ElasticSearch tracking failed, continuing with PostgreSQL:', esError.message);
       }
 
-      console.log(`📊 Click tracked: ${clickData.shortCode} (PG: ${postgresClick.id}, ES: queued)`);
+      console.log(`📊 Click tracked: ${link.shortCode} (PG: ${postgresClick.id}, ES: queued)`);
+
+      // Return final URL
+      return {
+        originalUrl: link.buildFinalUrl(),
+        title: link.title,
+        clicks: link.clickCount + 1
+      };
 
     } catch (error) {
       console.error('❌ Click tracking error:', error);
@@ -402,69 +405,54 @@ class LinkService {
       await this.ensureInitialized();
 
       // Get basic stats from PostgreSQL
-      const totalLinks = await Link.count({ where: { userId } });
-      const activeLinks = await Link.count({ 
-        where: { 
-          userId, 
-          isActive: true 
-        } 
+      const totalLinks = await Link.count({
+        where: { userId, isActive: true }
       });
 
-      let totalClicks = 0;
-      let clicksToday = 0;
+      const totalClicks = await Link.sum('clickCount', {
+        where: { userId, isActive: true }
+      }) || 0;
 
+      const totalUniqueClicks = await Link.sum('uniqueClickCount', {
+        where: { userId, isActive: true }
+      }) || 0;
+
+      // Get recent links
+      const recentLinks = await Link.findAll({
+        where: { userId, isActive: true },
+        include: [{
+          model: Domain,
+          as: 'domain'
+        }],
+        order: [['createdAt', 'DESC']],
+        limit: 5
+      });
+
+      // Try to get enhanced analytics from ElasticSearch
+      let enhancedAnalytics = null;
       try {
-        // Try to get click stats from ElasticSearch
-        const today = moment().startOf('day');
-        const esStats = await clickTrackingService.getClickStats(
-          null, // All links for user
-          null, // No start date (all time)
-          null, // No end date
-          { userId }
-        );
-
-        totalClicks = esStats.totalClicks || 0;
-
-        // Get today's clicks
-        const todayStats = await clickTrackingService.getClickStats(
-          null,
-          today.toISOString(),
-          moment().endOf('day').toISOString(),
-          { userId }
-        );
-
-        clicksToday = todayStats.totalClicks || 0;
-
+        if (clickTrackingService.isInitialized) {
+          enhancedAnalytics = await clickTrackingService.getUserAnalytics(userId);
+        }
       } catch (esError) {
-        console.warn('⚠️ ElasticSearch stats failed, using PostgreSQL:', esError.message);
-        
-        // Fallback to PostgreSQL - using aggregate query
-        const [clickStats] = await sequelize.query(`
-          SELECT 
-            COALESCE(SUM(l.click_count), 0) as total_clicks,
-            COALESCE(COUNT(c.id), 0) as clicks_today
-          FROM links l
-          LEFT JOIN clicks c ON l.id = c.link_id 
-            AND c.timestamp >= :today
-          WHERE l.user_id = :userId
-        `, {
-          replacements: { 
-            userId, 
-            today: moment().startOf('day').toDate() 
-          },
-          type: sequelize.QueryTypes.SELECT
-        });
-
-        totalClicks = parseInt(clickStats?.total_clicks || 0);
-        clicksToday = parseInt(clickStats?.clicks_today || 0);
+        console.warn('⚠️ ElasticSearch user analytics failed:', esError.message);
       }
 
       return {
         totalLinks,
-        activeLinks,
         totalClicks,
-        clicksToday,
-        avgClicks: totalLinks > 0 ? Math.round(totalClicks / totalLinks) : 0
+        totalUniqueClicks,
+        clickThroughRate: totalLinks > 0 ? (totalClicks / totalLinks).toFixed(2) : 0,
+        recentLinks: recentLinks.map(link => ({
+          id: link.id,
+          shortCode: link.shortCode,
+          title: link.title,
+          originalUrl: link.originalUrl,
+          clickCount: link.clickCount,
+          domain: link.domain?.domain || 'system',
+          createdAt: link.createdAt
+        })),
+        enhancedAnalytics // May be null if ElasticSearch unavailable
       };
 
     } catch (error) {
@@ -473,109 +461,204 @@ class LinkService {
     }
   }
 
-  // Helper methods
-  async ensureInitialized() {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-  }
-
-  getDateRange(period) {
-    const endDate = new Date();
-    const startDate = new Date();
-    
-    switch (period) {
-      case '1d':
-        startDate.setDate(endDate.getDate() - 1);
-        break;
-      case '7d':
-        startDate.setDate(endDate.getDate() - 7);
-        break;
-      case '30d':
-        startDate.setDate(endDate.getDate() - 30);
-        break;
-      case '90d':
-        startDate.setDate(endDate.getDate() - 90);
-        break;
-      default:
-        startDate.setDate(endDate.getDate() - 30);
-    }
-    
-    return { startDate, endDate };
-  }
-
-  buildFinalUrl(link) {
+  /**
+   * Get user links with pagination and filtering
+   */
+  async getUserLinks(userId, options = {}) {
     try {
-      const url = new URL(link.originalUrl);
-      
-      // Add UTM parameters if campaign is set
-      if (link.campaign) {
-        url.searchParams.set('utm_campaign', link.campaign);
-        url.searchParams.set('utm_source', 'shortlink');
-        url.searchParams.set('utm_medium', 'redirect');
+      const {
+        page = 1,
+        limit = 10,
+        search = '',
+        campaign = '',
+        sortBy = 'createdAt',
+        sortOrder = 'DESC'
+      } = options;
+
+      const offset = (page - 1) * limit;
+      const whereClause = { userId, isActive: true };
+
+      // Search filter
+      if (search) {
+        whereClause[Op.or] = [
+          { title: { [Op.iLike]: `%${search}%` } },
+          { originalUrl: { [Op.iLike]: `%${search}%` } },
+          { shortCode: { [Op.iLike]: `%${search}%` } }
+        ];
       }
-      
-      return url.toString();
+
+      // Campaign filter
+      if (campaign) {
+        whereClause.campaign = campaign;
+      }
+
+      const { count, rows } = await Link.findAndCountAll({
+        where: whereClause,
+        include: [{
+          model: Domain,
+          as: 'domain'
+        }],
+        order: [[sortBy, sortOrder]],
+        limit,
+        offset
+      });
+
+      return {
+        links: rows,
+        pagination: {
+          current: page,
+          pages: Math.ceil(count / limit),
+          total: count,
+          limit
+        }
+      };
+
     } catch (error) {
-      console.warn('Invalid URL for UTM parameters:', link.originalUrl);
-      return link.originalUrl;
+      console.error('❌ Get user links error:', error);
+      throw error;
     }
   }
 
-  detectDeviceType(userAgent) {
-    if (!userAgent) return 'Unknown';
-    
-    const ua = userAgent.toLowerCase();
-    if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone')) {
-      return 'Mobile';
-    } else if (ua.includes('tablet') || ua.includes('ipad')) {
-      return 'Tablet';
-    } else {
-      return 'Desktop';
-    }
-  }
-
-  detectBrowser(userAgent) {
-    if (!userAgent) return 'Unknown';
-    
-    const ua = userAgent.toLowerCase();
-    if (ua.includes('chrome')) return 'Chrome';
-    if (ua.includes('firefox')) return 'Firefox';
-    if (ua.includes('safari')) return 'Safari';
-    if (ua.includes('edge')) return 'Edge';
-    if (ua.includes('opera')) return 'Opera';
-    return 'Other';
-  }
-
-  detectOS(userAgent) {
-    if (!userAgent) return 'Unknown';
-    
-    const ua = userAgent.toLowerCase();
-    if (ua.includes('windows')) return 'Windows';
-    if (ua.includes('mac')) return 'macOS';
-    if (ua.includes('linux')) return 'Linux';
-    if (ua.includes('android')) return 'Android';
-    if (ua.includes('ios') || ua.includes('iphone') || ua.includes('ipad')) return 'iOS';
-    return 'Other';
-  }
-
-  async triggerWebhook(webhookUrl, data) {
+  /**
+   * Update link
+   */
+  async updateLink(linkId, userId, updateData) {
     try {
-      await axios.post(webhookUrl, data, {
-        timeout: 5000,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'Shortlink-Webhook/1.0'
+      const link = await Link.findOne({
+        where: { id: linkId, userId }
+      });
+
+      if (!link) {
+        throw new Error('Link not found or unauthorized');
+      }
+
+      const allowedFields = ['title', 'description', 'campaign', 'tags', 'isActive', 'expiresAt'];
+      const filteredData = {};
+      
+      allowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          filteredData[field] = updateData[field];
         }
       });
+
+      await link.update(filteredData);
       
-      console.log(`🔔 Webhook triggered: ${webhookUrl}`);
+      return await Link.findByPk(linkId, {
+        include: [{
+          model: Domain,
+          as: 'domain'
+        }]
+      });
+
     } catch (error) {
-      console.error('❌ Webhook error:', error.message);
+      console.error('❌ Update link error:', error);
+      throw error;
     }
   }
 
-  // ... other existing methods (create, update, delete, etc.)
+  /**
+   * Delete link (soft delete)
+   */
+  async deleteLink(linkId, userId) {
+    try {
+      const link = await Link.findOne({
+        where: { id: linkId, userId }
+      });
+
+      if (!link) {
+        throw new Error('Link not found or unauthorized');
+      }
+
+      await link.update({ isActive: false });
+      return { success: true };
+
+    } catch (error) {
+      console.error('❌ Delete link error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get link by short code
+   */
+  async getLinkByShortCode(shortCode, domainName = null) {
+    try {
+      return await Link.findByShortCodeAndDomain(shortCode, domainName);
+    } catch (error) {
+      console.error('❌ Get link by short code error:', error);
+      throw error;
+    }
+  }
+
+  // Helper methods
+  async generateUniqueShortCode(domainId = null, length = 6) {
+    let shortCode;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    do {
+      shortCode = shortid.generate().substring(0, length);
+      const existing = await Link.findByShortCodeAndDomain(shortCode, domainId);
+      if (!existing) break;
+      attempts++;
+    } while (attempts < maxAttempts);
+
+    if (attempts >= maxAttempts) {
+      throw new Error('Unable to generate unique short code');
+    }
+
+    return shortCode;
+  }
+
+  isValidUrl(url) {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async hashPassword(password) {
+    const bcrypt = require('bcrypt');
+    return await bcrypt.hash(password, 10);
+  }
+
+  async verifyPassword(password, hash) {
+    const bcrypt = require('bcrypt');
+    return await bcrypt.compare(password, hash);
+  }
+
+  async isUniqueClick(linkId, ipAddress) {
+    const existing = await Click.findOne({
+      where: { linkId, ipAddress }
+    });
+    return !existing;
+  }
+
+  getDateRange(range) {
+    const endDate = moment();
+    let startDate;
+
+    switch (range) {
+      case '24h':
+        startDate = moment().subtract(24, 'hours');
+        break;
+      case '7d':
+        startDate = moment().subtract(7, 'days');
+        break;
+      case '30d':
+        startDate = moment().subtract(30, 'days');
+        break;
+      case '90d':
+        startDate = moment().subtract(90, 'days');
+        break;
+      default:
+        startDate = moment().subtract(30, 'days');
+    }
+
+    return { startDate: startDate.toDate(), endDate: endDate.toDate() };
+  }
 }
 
 module.exports = new LinkService();
