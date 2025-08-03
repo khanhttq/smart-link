@@ -1,6 +1,6 @@
 // frontend/src/hooks/useAuth.js - COMPLETE IMPLEMENTATION
 import { useMemo } from 'react';
-import { useAuthStore } from '../stores/authStore';
+import useAuthStore from '../stores/authStore';
 
 export const useAuth = () => {
   const store = useAuthStore();

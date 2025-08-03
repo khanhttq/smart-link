@@ -31,7 +31,7 @@ import {
   SearchOutlined,
   ReloadOutlined
 } from '@ant-design/icons';
-import { useAuthStore } from '../stores/authStore';
+import useAuthStore from '../stores/authStore';
 import { useLinkStore } from '../stores/linkStore';
 import dayjs from 'dayjs';
 import axios from 'axios';

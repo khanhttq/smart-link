@@ -1,4 +1,4 @@
-// frontend/src/pages/CreateLinkPage.js
+// frontend/src/pages/CreateLinkPage.js - FIXED VERSION
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -16,274 +16,231 @@ import {
   ThunderboltOutlined,
   CopyOutlined 
 } from '@ant-design/icons';
-import axios from 'axios';
-import { useAuthStore } from '../stores/authStore';
 
-const apiClient = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000',
-});
-
-apiClient.interceptors.response.use(
-  response => response,
-  async error => {
-    if (error.response?.status === 401 && !error.config._retry) {
-      error.config._retry = true;
-      try {
-        const refreshResponse = await apiClient.post('/api/auth/refresh', {
-          refreshToken: localStorage.getItem('refreshToken')
-        });
-        const newToken = refreshResponse.data.data.tokens.accessToken;
-        useAuthStore.setState({ token: newToken });
-        localStorage.setItem('auth-storage', JSON.stringify({
-          state: { token: newToken, user: useAuthStore.getState().user, isAuthenticated: true },
-          version: 0
-        }));
-        error.config.headers.Authorization = `Bearer ${newToken}`;
-        return apiClient(error.config);
-      } catch (refreshError) {
-        message.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
-      }
-    }
-    return Promise.reject(error);
-  }
-);
+// ✅ CRITICAL: Sử dụng apiClient thống nhất thay vì tạo instance mới
+import apiClient from '../utils/apiClient';
+import useAuthStore from '../stores/authStore';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const CreateLinkPage = () => {
-  const { token, isAuthenticated } = useAuthStore();
+  // ✅ FIXED: Lấy token từ store với tên thống nhất
+  const { token, isAuthenticated, user } = useAuthStore();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
 
+  // ✅ Check auth on component mount
+  React.useEffect(() => {
+    if (!isAuthenticated || !token) {
+      message.error('Vui lòng đăng nhập trước!');
+      navigate('/login');
+    }
+  }, [isAuthenticated, token, navigate]);
+
   const handleSubmit = async (values) => {
     setLoading(true);
+    
     try {
+      // ✅ Double check auth
       if (!isAuthenticated || !token) {
         message.error('Vui lòng đăng nhập trước!');
         navigate('/login');
         return;
       }
 
-      console.log('Token gửi đi:', token); // Log để kiểm tra
+      console.log('🔗 Creating link for user:', user?.email);
+      console.log('🔑 Using token:', token?.substring(0, 10) + '...');
 
+      // ✅ FIXED: Sử dụng apiClient thống nhất (đã có Authorization header)
       const response = await apiClient.post('/api/links', {
         originalUrl: values.originalUrl,
         shortCode: values.customShortCode || undefined,
         title: values.title || undefined,
         campaign: values.campaign || undefined,
         description: values.description || undefined
-      }, {
-        headers: { Authorization: `Bearer ${token.trim()}` },
-        timeout: 5000
       });
 
       const data = response.data?.data;
+      
       if (!data?.shortCode || !data?.shortUrl) {
         throw new Error('Định dạng phản hồi không hợp lệ');
       }
+      
       const { shortCode, shortUrl } = data;
       
       message.success('Liên kết đã được tạo thành công!');
-      navigate('/dashboard', { 
-        state: { 
-          newLink: { shortCode, shortUrl, originalUrl: values.originalUrl }
-        }
+      
+      // Store created link data for display
+      setPreviewData({
+        shortCode,
+        shortUrl,
+        originalUrl: values.originalUrl,
+        title: values.title || 'Không có tiêu đề'
       });
+      
+      // Reset form
+      form.resetFields();
+      
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Tạo liên kết thất bại';
-      message.error(errorMessage);
+      console.error('❌ Create link error:', error);
+      
+      // Handle specific errors
+      if (error.response?.status === 401) {
+        message.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
+        navigate('/login');
+      } else if (error.response?.status === 400) {
+        const errorMessage = error.response?.data?.message || 'Dữ liệu không hợp lệ';
+        message.error(errorMessage);
+      } else if (error.response?.status === 409) {
+        message.error('Mã ngắn này đã được sử dụng. Vui lòng chọn mã khác!');
+      } else {
+        message.error(error.message || 'Có lỗi xảy ra khi tạo liên kết');
+      }
+      
     } finally {
       setLoading(false);
     }
   };
 
-  const handleValuesChange = (_, allValues) => {
-    if (allValues.originalUrl) {
-      setPreviewData({
-        originalUrl: allValues.originalUrl,
-        shortCode: allValues.customShortCode || 'abc123',
-        title: allValues.title,
-        campaign: allValues.campaign
-      });
-    } else {
-      setPreviewData(null);
-    }
-  };
-
   const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    message.success('Đã sao chép liên kết!');
+    navigator.clipboard.writeText(text).then(() => {
+      message.success('Đã sao chép vào clipboard!');
+    }).catch(() => {
+      message.error('Không thể sao chép. Vui lòng copy thủ công.');
+    });
   };
 
-  // FIXED: Sử dụng API URL thay vì window.location.origin
-  const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+  // ✅ Show loading if checking auth
+  if (!isAuthenticated) {
+    return (
+      <div style={{ textAlign: 'center', padding: '50px' }}>
+        <Title level={4}>Đang kiểm tra đăng nhập...</Title>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
+    <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>
       <Card>
-        <div style={{ width: '100%' }}>
-          <div style={{ textAlign: 'center', marginBottom: 32 }}>
-            <ThunderboltOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-            <Title level={2} style={{ margin: 0 }}>Tạo Liên Kết Rút Gọn</Title>
-            <Text type="secondary" style={{ fontSize: 16 }}>
-              Tạo liên kết ngắn gọn, dễ chia sẻ với analytics chi tiết
-            </Text>
-          </div>
+        <Title level={2}>
+          <LinkOutlined /> Tạo liên kết ngắn
+        </Title>
+        <Text type="secondary">
+          Tạo liên kết ngắn cho URL dài của bạn với các tùy chọn tùy chỉnh
+        </Text>
 
-          <Divider />
+        <Divider />
 
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={handleSubmit}
-            onValuesChange={handleValuesChange}
-            size="large"
-          >
-            <Form.Item
-              label="Liên kết gốc"
-              name="originalUrl"
-              rules={[
-                { required: true, message: 'Vui lòng nhập liên kết gốc!' },
-                { type: 'url', message: 'Vui lòng nhập URL hợp lệ!' }
-              ]}
-            >
-              <Input 
-                prefix={<LinkOutlined />}
-                placeholder="https://example.com/very-long-url"
-                size="large"
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="Mã tùy chỉnh (tùy chọn)"
-              name="customShortCode"
-              rules={[
-                { pattern: /^[a-zA-Z0-9-_]+$/, message: 'Chỉ được sử dụng chữ cái, số, dấu gạch ngang và gạch dưới!' }
-              ]}
-            >
-              <Input 
-                addonBefore={`${baseUrl}/`}
-                placeholder="my-custom-link"
-                size="large"
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="Tiêu đề (tùy chọn)"
-              name="title"
-            >
-              <Input 
-                placeholder="Mô tả ngắn gọn về liên kết"
-                size="large"
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="Chiến dịch (tùy chọn)"
-              name="campaign"
-            >
-              <Input 
-                placeholder="summer-sale, social-media, email-campaign"
-                size="large"
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="Mô tả (tùy chọn)"
-              name="description"
-            >
-              <TextArea 
-                rows={4}
-                placeholder="Mô tả chi tiết về liên kết này..."
-                size="large"
-              />
-            </Form.Item>
-
-            <Form.Item>
-              <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
-                <Button 
-                  size="large" 
-                  onClick={() => navigate('/dashboard')}
-                  style={{ minWidth: 120 }}
-                >
-                  Hủy
-                </Button>
-                <Button 
-                  type="primary" 
-                  htmlType="submit" 
-                  loading={loading}
-                  icon={<LinkOutlined />}
-                  size="large"
-                  style={{ minWidth: 160 }}
-                >
-                  {loading ? 'Đang tạo...' : 'Tạo Liên Kết'}
-                </Button>
-              </div>
-            </Form.Item>
-          </Form>
-        </div>
-      </Card>
-
-      {previewData && (
-        <Card 
-          title={<><LinkOutlined /> Xem trước liên kết</>}
-          style={{ marginTop: 24 }}
-          type="inner"
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSubmit}
+          disabled={loading}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div>
-              <Text strong>Liên kết gốc: </Text>
-              <Text copyable>{previewData.originalUrl}</Text>
-            </div>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Text strong>Liên kết rút gọn: </Text>
-              <Text code style={{ color: '#1890ff' }}>
-                {baseUrl}/{previewData.shortCode}
-              </Text>
-              <Button 
-                type="link" 
-                icon={<CopyOutlined />} 
-                size="small"
-                onClick={() => copyToClipboard(`${baseUrl}/${previewData.shortCode}`)}
-              />
-            </div>
-            
-            {previewData.title && (
-              <div>
-                <Text strong>Tiêu đề: </Text>
-                <Text>{previewData.title}</Text>
-              </div>
-            )}
-            
-            {previewData.campaign && (
-              <div>
-                <Text strong>Chiến dịch: </Text>
-                <Text type="secondary">{previewData.campaign}</Text>
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
+          <Form.Item
+            label="URL gốc"
+            name="originalUrl"
+            rules={[
+              { required: true, message: 'Vui lòng nhập URL!' },
+              { type: 'url', message: 'URL không hợp lệ!' }
+            ]}
+          >
+            <Input
+              placeholder="https://example.com/very-long-url"
+              size="large"
+              prefix={<LinkOutlined />}
+            />
+          </Form.Item>
 
-      <Alert
-        message="💡 Mẹo sử dụng"
-        description={
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            <li>Để trống mã tùy chỉnh để hệ thống tự tạo mã ngẫu nhiên</li>
-            <li>Sử dụng chiến dịch để phân loại và theo dõi hiệu quả</li>
-            <li>Tiêu đề giúp bạn dễ dàng nhận diện liên kết trong danh sách</li>
-          </ul>
-        }
-        type="info"
-        showIcon
-        style={{ marginTop: 24 }}
-      />
+          <Form.Item
+            label="Mã ngắn tùy chỉnh (tùy chọn)"
+            name="customShortCode"
+            rules={[
+              { pattern: /^[a-zA-Z0-9-_]+$/, message: 'Chỉ cho phép chữ cái, số, dấu gạch ngang và gạch dưới' }
+            ]}
+          >
+            <Input
+              placeholder="my-custom-code"
+              size="large"
+              prefix={<ThunderboltOutlined />}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Tiêu đề (tùy chọn)"
+            name="title"
+          >
+            <Input
+              placeholder="Tiêu đề mô tả cho liên kết"
+              size="large"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Campaign (tùy chọn)"
+            name="campaign"
+          >
+            <Input
+              placeholder="utm_campaign_name"
+              size="large"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Mô tả (tùy chọn)"
+            name="description"
+          >
+            <TextArea
+              rows={3}
+              placeholder="Mô tả chi tiết về liên kết này"
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              size="large"
+              block
+              icon={<ThunderboltOutlined />}
+            >
+              {loading ? 'Đang tạo...' : 'Tạo liên kết ngắn'}
+            </Button>
+          </Form.Item>
+        </Form>
+
+        {/* ✅ Success preview */}
+        {previewData && (
+          <>
+            <Divider />
+            <Alert
+              message="Liên kết đã được tạo thành công!"
+              description={
+                <div style={{ marginTop: 10 }}>
+                  <div><strong>URL gốc:</strong> {previewData.originalUrl}</div>
+                  <div><strong>URL ngắn:</strong> 
+                    <Button
+                      type="link"
+                      icon={<CopyOutlined />}
+                      onClick={() => copyToClipboard(previewData.shortUrl)}
+                    >
+                      {previewData.shortUrl}
+                    </Button>
+                  </div>
+                  <div><strong>Mã:</strong> {previewData.shortCode}</div>
+                  <div><strong>Tiêu đề:</strong> {previewData.title}</div>
+                </div>
+              }
+              type="success"
+              showIcon
+            />
+          </>
+        )}
+      </Card>
     </div>
   );
 };

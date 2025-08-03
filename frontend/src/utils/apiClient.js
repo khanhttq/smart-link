@@ -1,4 +1,4 @@
-// frontend/src/utils/apiClient.js - FIXED to prevent refresh loop
+// frontend/src/utils/apiClient.js - FIXED VERSION  
 import axios from 'axios';
 import { message } from 'antd';
 
@@ -7,8 +7,6 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000';
 // ===== PREVENT REFRESH LOOP VARIABLES =====
 let isRefreshing = false;
 let failedQueue = [];
-let refreshAttempts = 0;
-const MAX_REFRESH_ATTEMPTS = 2;
 
 // Process failed queue
 const processQueue = (error, token = null) => {
@@ -23,7 +21,7 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-// Create axios instance
+// ✅ CREATE SINGLE AXIOS INSTANCE
 const apiClient = axios.create({
   baseURL: API_URL,
   timeout: 15000,
@@ -32,7 +30,7 @@ const apiClient = axios.create({
   }
 });
 
-// Request interceptor
+// ✅ REQUEST INTERCEPTOR - Đồng bộ với authStore
 apiClient.interceptors.request.use(
   (config) => {
     console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.url}`);
@@ -43,16 +41,21 @@ apiClient.interceptors.request.use(
       config.params._t = Date.now();
     }
     
-    // Add auth token if available
-    const authStorage = localStorage.getItem('auth-storage');
-    if (authStorage) {
-      try {
-        const { state } = JSON.parse(authStorage);
-        if (state?.token) {
-          config.headers.Authorization = `Bearer ${state.token}`;
+    // ✅ CRITICAL FIX: Đọc token từ authStore format thống nhất
+    if (!config.headers.Authorization) {
+      const authStorage = localStorage.getItem('auth-storage');
+      if (authStorage) {
+        try {
+          const { state } = JSON.parse(authStorage);
+          
+          // ✅ Sử dụng field "token" thống nhất với authStore
+          if (state?.token) {
+            config.headers.Authorization = `Bearer ${state.token}`;
+            console.log(`✅ Added Authorization header: Bearer ${state.token.substring(0, 10)}...`);
+          }
+        } catch (error) {
+          console.error('❌ Error parsing auth storage:', error);
         }
-      } catch (error) {
-        console.error('Error parsing auth storage:', error);
       }
     }
     
@@ -64,63 +67,43 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor with enhanced refresh logic
+// ✅ RESPONSE INTERCEPTOR - Simplified refresh logic  
 apiClient.interceptors.response.use(
-  (response) => {
-    console.log(`✅ API Response: ${response.status} from ${response.config.url}`);
-    
-    // Reset refresh attempts on successful request
-    if (!response.config.url.includes('/refresh')) {
-      refreshAttempts = 0;
-    }
-    
-    return response;
-  },
+  (response) => response,
   async (error) => {
-    console.error('🚨 API Error:', error);
-    
     const originalRequest = error.config;
     
-    // ===== PREVENT REFRESH LOOP =====
+    // ✅ Skip refresh for specific errors
+    if (
+      error.response?.status === 401 &&
+      (originalRequest.url.includes('/api/auth/login') ||
+       originalRequest.url.includes('/api/auth/register') ||
+       error.response?.data?.code === 'INVALID_PASSWORD' ||
+       error.response?.data?.code === 'USER_NOT_FOUND')
+    ) {
+      console.log(`⏭️ Skipping refresh for: ${error.response?.data?.code} on ${originalRequest.url}`);
+      return Promise.reject(error);
+    }
+
+    // ✅ Handle 401 with refresh
     if (error.response?.status === 401 && !originalRequest._retry) {
-      
-      // Check if this is a refresh endpoint failing
-      if (originalRequest.url.includes('/refresh')) {
-        console.log('❌ Refresh endpoint failed, clearing auth');
-        isRefreshing = false;
-        refreshAttempts = 0;
-        clearAuthAndRedirect();
-        return Promise.reject(error);
-      }
-
-      // Check max refresh attempts
-      if (refreshAttempts >= MAX_REFRESH_ATTEMPTS) {
-        console.log('❌ Max refresh attempts reached, clearing auth');
-        isRefreshing = false;
-        refreshAttempts = 0;
-        clearAuthAndRedirect();
-        return Promise.reject(error);
-      }
-
-      // Mark as retry attempt
       originalRequest._retry = true;
 
-      // If already refreshing, queue the request
+      // If already refreshing, queue this request
       if (isRefreshing) {
-        console.log('🔄 Already refreshing, queuing request...');
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then(token => {
+        try {
+          const token = await new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          });
           originalRequest.headers['Authorization'] = `Bearer ${token}`;
           return apiClient(originalRequest);
-        }).catch(err => {
+        } catch (err) {
           return Promise.reject(err);
-        });
+        }
       }
 
       // Start refresh process
       isRefreshing = true;
-      refreshAttempts++;
 
       try {
         const authStorage = localStorage.getItem('auth-storage');
@@ -135,34 +118,37 @@ apiClient.interceptors.response.use(
           throw new Error('No refresh token available');
         }
 
-        console.log(`🔄 Attempting token refresh (attempt ${refreshAttempts}/${MAX_REFRESH_ATTEMPTS})...`);
+        console.log('🔄 Attempting token refresh...');
         
-        // ===== IMPORTANT: Use a separate axios instance for refresh =====
-        const refreshResponse = await axios.post(`${API_URL}/api/auth/refresh`, {
-          refreshToken
-        }, {
+        // ✅ Use fetch to avoid interceptor loop
+        const refreshResponse = await fetch(`${API_URL}/api/auth/refresh`, {
+          method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          timeout: 10000 // Shorter timeout for refresh
+          body: JSON.stringify({ refreshToken })
         });
         
-        const { tokens } = refreshResponse.data.data;
+        if (!refreshResponse.ok) {
+          throw new Error('Refresh request failed');
+        }
         
-        // Update localStorage
+        const refreshData = await refreshResponse.json();
+        const { tokens } = refreshData.data;
+        
+        // ✅ Update localStorage with new tokens (match authStore format)
         const newAuthData = {
           ...JSON.parse(authStorage),
           state: {
             ...state,
-            token: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-            sessionExpiresAt: new Date(Date.now() + (tokens.expiresIn * 1000))
+            token: tokens.accessToken,              // ✅ Thống nhất với authStore  
+            refreshToken: tokens.refreshToken
           }
         };
         
         localStorage.setItem('auth-storage', JSON.stringify(newAuthData));
         
-        // Update default headers
+        // ✅ Update global axios headers
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${tokens.accessToken}`;
         originalRequest.headers['Authorization'] = `Bearer ${tokens.accessToken}`;
         
@@ -185,7 +171,6 @@ apiClient.interceptors.response.use(
         
         // Reset refresh state
         isRefreshing = false;
-        refreshAttempts = MAX_REFRESH_ATTEMPTS; // Prevent further attempts
         
         // Clear auth and redirect
         clearAuthAndRedirect();
@@ -198,13 +183,12 @@ apiClient.interceptors.response.use(
   }
 );
 
-// Helper function to clear auth and redirect
+// ✅ HELPER: Clear auth and redirect
 const clearAuthAndRedirect = () => {
   console.log('🧹 Clearing auth and redirecting to login...');
   
-  // ✅ FIX: Aggressive clear
   try {
-    localStorage.clear();
+    localStorage.removeItem('auth-storage');
     sessionStorage.clear();
   } catch (error) {
     console.error('Error clearing storage:', error);
@@ -216,7 +200,10 @@ const clearAuthAndRedirect = () => {
   // Show message and redirect
   message.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
   
-  // ✅ FIX: Immediate redirect
-  window.location.href = '/login';
+  // Force redirect
+  setTimeout(() => {
+    window.location.href = '/login';
+  }, 1000);
 };
+
 export default apiClient;

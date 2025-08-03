@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import apiClient from '../utils/apiClient'; // ✅ FIXED: Import from utils
 import { message } from 'antd'
-import { useAuthStore } from '../stores/authStore';
+import useAuthStore from '../stores/authStore';
 
 // Default stats để tránh null
 const DEFAULT_STATS = {

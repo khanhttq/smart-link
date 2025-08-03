@@ -1,90 +1,91 @@
-// frontend/src/stores/authStore.js - COMPLETE VERSION
+// frontend/src/stores/authStore.js - FIXED VERSION with smartRegistration
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import axios from 'axios';
+import apiClient from '../utils/apiClient';
 import notificationService from '../services/notificationService';
-import { ERROR_CODES, mapBackendError } from '../constants/errorCodes';
 
-// ===== API CLIENT SETUP =====
-const apiClient = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000',
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+// ===== INITIAL STATE with smartRegistration =====
+const initialState = {
+  user: null,
+  token: null,           // Access token - sử dụng cho tất cả API calls
+  refreshToken: null,    // Refresh token - chỉ dùng để refresh
+  isAuthenticated: false,
+  loading: false,
+  error: null,
+  // ✅ CRITICAL: Initialize smartRegistration object
+  smartRegistration: {
+    isVisible: false,
+    email: '',
+    password: ''
+  }
+};
 
-// ===== ZUSTAND STORE =====
-export const useAuthStore = create(
+const useAuthStore = create()(
   persist(
     (set, get) => ({
-      // ===== STATE =====
-      user: null,
-      tokens: null,
-      isAuthenticated: false,
-      loading: false,
-      smartRegistration: {
-        isVisible: false,
-        email: '',
-        password: ''
-      },
-
-      // ===== AUTHENTICATION ACTIONS =====
+      ...initialState,
 
       /**
-       * Login user with enhanced error handling
-       * @param {Object} credentials - { email, password }
-       * @returns {Object} - { success, error?, user?, tokens?, showSmartRegistration? }
+       * ✅ FIXED: Thống nhất cách set token 
+       */
+      setTokens: (tokens) => {
+        const { accessToken, refreshToken } = tokens;
+        
+        // ✅ Lưu vào store
+        set({ 
+          token: accessToken,           // Sử dụng tên này cho tất cả
+          refreshToken: refreshToken 
+        });
+        
+        // ✅ Set global axios header ngay lập tức
+        if (accessToken) {
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+          console.log('✅ Set global Authorization header:', `Bearer ${accessToken.substring(0, 10)}...`);
+        }
+      },
+
+      /**
+       * ✅ FIXED: Login với token management thống nhất
        */
       login: async (credentials) => {
-        // Prevent multiple concurrent login attempts
-        if (get().loading) {
-          return { 
-            success: false, 
-            error: 'Đang xử lý đăng nhập. Vui lòng chờ...' 
-          };
-        }
-
-        set({ loading: true });
+        set({ loading: true, error: null });
         
         try {
-          console.log('🔐 Login attempt for:', credentials.email);
+          console.log('🔑 Attempting login...');
           
-          // Sanitize input
-          const sanitizedCredentials = {
-            email: credentials.email?.trim()?.toLowerCase(),
-            password: credentials.password
-          };
-
-          const response = await apiClient.post('/api/auth/login', sanitizedCredentials);
+          const response = await apiClient.post('/api/auth/login', credentials);
           const { user, tokens } = response.data.data;
-
-          // ✅ Update state properly
-          set({
-            user,
-            tokens,
-            isAuthenticated: true,
-            loading: false
+          
+          console.log('✅ Login response received:', { 
+            user: user.email, 
+            hasTokens: !!tokens 
           });
-
-          // Set authorization header
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${tokens.accessToken}`;
-
-          // ✅ Use new notification service
-          notificationService.loginSuccess(user.name);
-          console.log('✅ Login successful');
+          
+          // ✅ Set tokens using unified method
+          get().setTokens(tokens);
+          
+          // ✅ Set user and auth state
+          set({ 
+            user,
+            isAuthenticated: true,
+            loading: false,
+            error: null
+          });
+          
+          console.log('✅ Login successful, tokens set');
+          notificationService.success(`Chào mừng ${user.email}!`);
           
           return { success: true, user, tokens };
-
+          
         } catch (error) {
           console.error('❌ Login error:', error);
           set({ loading: false });
-
-          // ✅ Use new error handling system
-          const errorCode = mapBackendError(error);
           
-          // Handle special case for unregistered email
-          if (errorCode === ERROR_CODES.AUTH_USER_NOT_FOUND) {
+          // ✅ Handle special case: User not found → Show smart registration
+          if (error.response?.status === 404 || 
+              error.response?.data?.code === 'USER_NOT_FOUND') {
+            
+            console.log('👤 User not found, showing smart registration');
             set({
               smartRegistration: {
                 isVisible: true,
@@ -92,17 +93,16 @@ export const useAuthStore = create(
                 password: credentials.password
               }
             });
+            
             return { 
               success: false, 
               showSmartRegistration: true,
-              error: errorCode
+              error: 'USER_NOT_FOUND'
             };
           }
-
-          // ✅ Handle error properly with notification service
-          const errorResult = notificationService.handleError(error, 'Login', {
-            showToast: error?.response?.status !== 429 // Don't show toast for rate limiting
-          });
+          
+          const errorResult = notificationService.handleError(error, 'Login');
+          set({ error: errorResult.message });
           
           return { 
             success: false, 
@@ -113,56 +113,35 @@ export const useAuthStore = create(
       },
 
       /**
-       * Register new user with validation
-       * @param {Object} userData - { name, email, password }
-       * @returns {Object} - { success, error?, user?, tokens? }
+       * ✅ FIXED: Register method
        */
       register: async (userData) => {
-        set({ loading: true });
+        set({ loading: true, error: null });
         
         try {
-          console.log('📝 Registration attempt for:', userData.email);
-
-          // ✅ Validate input before sending
-          const validationError = get()._validateRegistrationData(userData);
-          if (validationError) {
-            set({ loading: false });
-            notificationService.error(validationError);
-            return { success: false, error: validationError };
-          }
-
-          // Sanitize input
-          const sanitizedData = {
-            name: userData.name?.trim(),
-            email: userData.email?.trim()?.toLowerCase(),
-            password: userData.password
-          };
-
-          const response = await apiClient.post('/api/auth/register', sanitizedData);
+          const response = await apiClient.post('/api/auth/register', userData);
           const { user, tokens } = response.data.data;
-
-          // ✅ Update state properly
-          set({
-            user,
-            tokens,
-            isAuthenticated: true,
-            loading: false
-          });
-
-          // Set authorization header
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${tokens.accessToken}`;
           
-          // ✅ Use new notification service
-          notificationService.registerSuccess(user.name);
+          get().setTokens(tokens);
+          
+          set({ 
+            user,
+            isAuthenticated: true,
+            loading: false,
+            error: null
+          });
+          
+          notificationService.success('Đăng ký thành công!');
           
           return { success: true, user, tokens };
-
+          
         } catch (error) {
           console.error('❌ Registration error:', error);
           set({ loading: false });
-
-          // ✅ Use new error handling system
+          
           const errorResult = notificationService.handleError(error, 'Registration');
+          set({ error: errorResult.message });
+          
           return { 
             success: false, 
             error: errorResult.code,
@@ -172,79 +151,128 @@ export const useAuthStore = create(
       },
 
       /**
-       * Logout user with cleanup
-       * @param {boolean} allDevices - Logout from all devices
+       * ✅ FIXED: Refresh token với error handling tốt hơn
        */
-      logout: async (allDevices = false) => {
+      refreshToken: async () => {
         try {
-          const endpoint = allDevices ? '/api/auth/logout-all' : '/api/auth/logout';
+          const { refreshToken } = get();
           
-          if (get().tokens?.accessToken) {
-            await apiClient.post(endpoint);
+          if (!refreshToken) {
+            console.error('❌ No refresh token available');
+            return false;
           }
+          
+          console.log('🔄 Refreshing token...');
+          
+          // ✅ Sử dụng fetch để tránh interceptor loop
+          const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/refresh`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ refreshToken })
+          });
+          
+          if (!response.ok) {
+            throw new Error('Refresh failed');
+          }
+          
+          const data = await response.json();
+          const { tokens } = data.data;
+          
+          // ✅ Set new tokens
+          get().setTokens(tokens);
+          
+          console.log('✅ Token refreshed successfully');
+          return true;
+          
         } catch (error) {
-          console.error('Logout API error:', error);
-          // Continue with logout even if API fails
+          console.error('❌ Token refresh failed:', error);
+          
+          // Clear all auth data
+          get().logout();
+          return false;
         }
-
-        // ✅ Clear state properly
-        set({
-          user: null,
-          tokens: null,
-          isAuthenticated: false,
-          loading: false,
-          smartRegistration: {
-            isVisible: false,
-            email: '',
-            password: ''
-          }
-        });
-
-        // Clear API headers
-        delete apiClient.defaults.headers.common['Authorization'];
-        
-        // ✅ Use new notification service
-        notificationService.logoutSuccess();
       },
 
       /**
-       * Change password with validation
-       * @param {Object} passwordData - { currentPassword, newPassword }
+       * ✅ FIXED: Logout với cleanup đầy đủ
        */
-      changePassword: async (passwordData) => {
-        set({ loading: true });
-        
+      logout: async () => {
         try {
-          // ✅ Validate password before sending
-          const validationError = get()._validatePasswordChange(passwordData);
-          if (validationError) {
-            set({ loading: false });
-            notificationService.error(validationError);
-            return { success: false, error: validationError };
+          const { token } = get();
+          
+          // Try to call logout API if token exists
+          if (token) {
+            try {
+              await apiClient.post('/api/auth/logout');
+            } catch (error) {
+              console.log('Logout API call failed, continuing with local cleanup');
+            }
           }
-
-          await apiClient.post('/api/auth/change-password', passwordData);
-          
-          set({ loading: false });
-          notificationService.passwordChangeSuccess();
-          
-          return { success: true };
           
         } catch (error) {
-          console.error('❌ Change password error:', error);
-          set({ loading: false });
+          console.log('Logout error, continuing with cleanup');
+        } finally {
+          // ✅ AGGRESSIVE CLEANUP - Reset to initial state
+          set({
+            ...initialState // This includes smartRegistration reset
+          });
           
-          const errorResult = notificationService.handleError(error, 'Change Password');
-          return { 
-            success: false, 
-            error: errorResult.code,
-            message: errorResult.message
-          };
+          // Clear axios headers
+          delete apiClient.defaults.headers.common['Authorization'];
+          
+          // Clear all storage
+          try {
+            localStorage.removeItem('auth-storage');
+            sessionStorage.clear();
+          } catch (error) {
+            console.error('Storage clear error:', error);
+          }
+          
+          console.log('✅ Logout completed, all auth data cleared');
+        }
+      },
+
+      /**
+       * ✅ Check authentication status
+       */
+      checkAuth: async () => {
+        try {
+          const { token } = get();
+          
+          if (!token) {
+            console.log('No token found, user not authenticated');
+            return false;
+          }
+          
+          // Verify token with server
+          const response = await apiClient.get('/api/auth/me');
+          const { user } = response.data.data;
+          
+          set({ user, isAuthenticated: true });
+          console.log('✅ Auth check successful');
+          
+          return true;
+          
+        } catch (error) {
+          console.error('❌ Auth check failed:', error);
+          
+          // Try to refresh token
+          const refreshSuccess = await get().refreshToken();
+          if (!refreshSuccess) {
+            get().logout();
+          }
+          
+          return false;
         }
       },
 
       // ===== SMART REGISTRATION ACTIONS =====
 
+      /**
+       * ✅ Show smart registration modal
+       */
       showSmartRegistration: (email, password) => {
         set({
           smartRegistration: {
@@ -255,6 +283,9 @@ export const useAuthStore = create(
         });
       },
 
+      /**
+       * ✅ Hide smart registration modal
+       */
       hideSmartRegistration: () => {
         set({
           smartRegistration: {
@@ -265,324 +296,56 @@ export const useAuthStore = create(
         });
       },
 
-      // ===== AUTH VERIFICATION =====
-
       /**
-       * Check authentication status
-       * @returns {boolean} - Authentication status
+       * ✅ Clear errors
        */
-      checkAuth: async () => {
-        const { tokens } = get();
-        if (!tokens?.accessToken) {
-          return false;
-        }
-
-        try {
-          // Set header before making request
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${tokens.accessToken}`;
-          
-          const response = await apiClient.get('/api/auth/me');
-          const user = response.data.data.user;
-          
-          set({ user, isAuthenticated: true });
-          return true;
-          
-        } catch (error) {
-          console.error('Auth check failed:', error);
-          
-          // ✅ Handle token expiry properly
-          const errorCode = mapBackendError(error);
-          if (errorCode === ERROR_CODES.AUTH_TOKEN_EXPIRED || 
-              errorCode === ERROR_CODES.AUTH_TOKEN_INVALID) {
-            get().logout();
-          }
-          
-          return false;
-        }
+      clearError: () => {
+        set({ error: null });
       },
 
       /**
-       * Refresh authentication token
-       */
-      refreshToken: async () => {
-        const { tokens } = get();
-        if (!tokens?.refreshToken) {
-          return false;
-        }
-
-        try {
-          const response = await apiClient.post('/api/auth/refresh', {
-            refreshToken: tokens.refreshToken
-          });
-          
-          const { tokens: newTokens } = response.data.data;
-          
-          set({ tokens: newTokens });
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${newTokens.accessToken}`;
-          
-          return true;
-          
-        } catch (error) {
-          console.error('Token refresh failed:', error);
-          get().logout();
-          return false;
-        }
-      },
-
-      // ===== VALIDATION HELPERS =====
-
-      /**
-       * Validate registration data
-       * @param {Object} userData - Registration data
-       * @returns {string|null} - Error message or null
-       */
-      _validateRegistrationData: (userData) => {
-        if (!userData.name || userData.name.trim().length < 2) {
-          return 'Họ tên phải có ít nhất 2 ký tự';
-        }
-
-        if (!userData.email) {
-          return 'Email là bắt buộc';
-        }
-
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(userData.email)) {
-          return 'Định dạng email không hợp lệ';
-        }
-
-        if (!userData.password) {
-          return 'Mật khẩu là bắt buộc';
-        }
-
-        // ✅ Unified password validation
-        const passwordError = get()._validatePassword(userData.password);
-        if (passwordError) {
-          return passwordError;
-        }
-
-        return null;
-      },
-
-      /**
-       * Validate password strength
-       * @param {string} password - Password to validate
-       * @returns {string|null} - Error message or null
-       */
-      _validatePassword: (password) => {
-        if (!password) {
-          return 'Mật khẩu là bắt buộc';
-        }
-
-        if (password.length < 8) {
-          return 'Mật khẩu phải có ít nhất 8 ký tự';
-        }
-
-        if (!/(?=.*[a-z])/.test(password)) {
-          return 'Mật khẩu phải có ít nhất 1 chữ thường';
-        }
-
-        if (!/(?=.*[A-Z])/.test(password)) {
-          return 'Mật khẩu phải có ít nhất 1 chữ hoa';
-        }
-
-        if (!/(?=.*\d)/.test(password)) {
-          return 'Mật khẩu phải có ít nhất 1 chữ số';
-        }
-
-        return null;
-      },
-
-      /**
-       * Validate password change data
-       * @param {Object} passwordData - Password change data
-       * @returns {string|null} - Error message or null
-       */
-      _validatePasswordChange: (passwordData) => {
-        if (!passwordData.currentPassword) {
-          return 'Mật khẩu hiện tại là bắt buộc';
-        }
-
-        if (!passwordData.newPassword) {
-          return 'Mật khẩu mới là bắt buộc';
-        }
-
-        if (passwordData.currentPassword === passwordData.newPassword) {
-          return 'Mật khẩu mới phải khác mật khẩu hiện tại';
-        }
-
-        const passwordError = get()._validatePassword(passwordData.newPassword);
-        if (passwordError) {
-          return passwordError;
-        }
-
-        return null;
-      },
-
-      // ===== UTILITY METHODS =====
-
-      /**
-       * Get password strength score
-       * @param {string} password - Password to check
-       * @returns {Object} - { score, level, text, status }
+       * ✅ Get password strength (optional)
        */
       getPasswordStrength: (password) => {
-        if (!password) return { score: 0, level: 'none', text: 'Chưa nhập mật khẩu', status: 'exception' };
+        if (!password) return null;
         
         let score = 0;
+        let feedback = '';
         
-        // Length scoring
-        if (password.length >= 8) score += 25;
-        if (password.length >= 12) score += 10;
+        // Length check
+        if (password.length >= 8) score++;
+        if (password.length >= 12) score++;
         
-        // Character types scoring
-        if (/[a-z]/.test(password)) score += 15;
-        if (/[A-Z]/.test(password)) score += 15;
-        if (/\d/.test(password)) score += 15;
-        if (/[^a-zA-Z\d]/.test(password)) score += 20;
+        // Character variety
+        if (/[a-z]/.test(password)) score++;
+        if (/[A-Z]/.test(password)) score++;
+        if (/[0-9]/.test(password)) score++;
+        if (/[^A-Za-z0-9]/.test(password)) score++;
         
-        let level, text, status;
-        if (score < 30) {
-          level = 'weak';
-          text = 'Yếu';
-          status = 'exception';
-        } else if (score < 60) {
-          level = 'fair';
-          text = 'Trung bình';
-          status = 'active';
-        } else if (score < 80) {
-          level = 'good';
-          text = 'Mạnh';
-          status = 'normal';
-        } else {
-          level = 'strong';
-          text = 'Rất mạnh';
-          status = 'success';
-        }
+        // Feedback
+        if (score < 3) feedback = 'Mật khẩu yếu';
+        else if (score < 5) feedback = 'Mật khẩu trung bình';
+        else feedback = 'Mật khẩu mạnh';
         
-        return { score: Math.min(100, score), level, text, status };
-      },
-
-      /**
-       * Clear all auth errors
-       */
-      clearErrors: () => {
-        set({ loading: false });
-      },
-
-      /**
-       * Update user profile
-       * @param {Object} profileData - Updated profile data
-       */
-      updateProfile: async (profileData) => {
-        set({ loading: true });
-        
-        try {
-          const response = await apiClient.put('/api/auth/profile', profileData);
-          const { user } = response.data.data;
-          
-          set({ user, loading: false });
-          notificationService.success('Hồ sơ đã được cập nhật thành công');
-          
-          return { success: true, user };
-          
-        } catch (error) {
-          console.error('❌ Update profile error:', error);
-          set({ loading: false });
-          
-          const errorResult = notificationService.handleError(error, 'Update Profile');
-          return { 
-            success: false, 
-            error: errorResult.code,
-            message: errorResult.message
-          };
-        }
-      },
-
-      /**
-       * Get user stats
-       */
-      getUserStats: async () => {
-        try {
-          const response = await apiClient.get('/api/auth/stats');
-          return { success: true, stats: response.data.data };
-          
-        } catch (error) {
-          console.error('❌ Get user stats error:', error);
-          const errorResult = notificationService.handleError(error, 'Get Stats', { showToast: false });
-          return { 
-            success: false, 
-            error: errorResult.code,
-            message: errorResult.message
-          };
-        }
-      },
-
-      /**
-       * Verify email address
-       * @param {string} token - Email verification token
-       */
-      verifyEmail: async (token) => {
-        set({ loading: true });
-        
-        try {
-          await apiClient.post('/api/auth/verify-email', { token });
-          
-          // Update user verification status
-          const { user } = get();
-          if (user) {
-            set({ 
-              user: { ...user, emailVerified: true },
-              loading: false 
-            });
-          }
-          
-          notificationService.success('Email đã được xác thực thành công!');
-          return { success: true };
-          
-        } catch (error) {
-          console.error('❌ Email verification error:', error);
-          set({ loading: false });
-          
-          const errorResult = notificationService.handleError(error, 'Email Verification');
-          return { 
-            success: false, 
-            error: errorResult.code,
-            message: errorResult.message
-          };
-        }
-      },
-
-      /**
-       * Resend email verification
-       */
-      resendEmailVerification: async () => {
-        try {
-          await apiClient.post('/api/auth/resend-verification');
-          notificationService.success('Email xác thực đã được gửi lại');
-          return { success: true };
-          
-        } catch (error) {
-          console.error('❌ Resend email verification error:', error);
-          const errorResult = notificationService.handleError(error, 'Resend Email Verification');
-          return { 
-            success: false, 
-            error: errorResult.code,
-            message: errorResult.message
-          };
-        }
+        return { score, feedback };
       }
     }),
     {
       name: 'auth-storage',
+      // ✅ CRITICAL: Chỉ persist những field cần thiết
       partialize: (state) => ({
         user: state.user,
-        tokens: state.tokens,
+        token: state.token,                    // ✅ Thống nhất tên
+        refreshToken: state.refreshToken,      // ✅ Thống nhất tên  
         isAuthenticated: state.isAuthenticated
+        // ✅ DON'T persist smartRegistration (should be session-only)
       }),
+      
+      // ✅ CRITICAL: Restore axios header khi reload
       onRehydrateStorage: () => (state) => {
-        if (state?.tokens?.accessToken) {
-          // Restore authorization header
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${state.tokens.accessToken}`;
+        if (state?.token) {
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
+          console.log('✅ Restored Authorization header on reload');
           
           // Verify token is still valid
           state.checkAuth().catch(() => {
@@ -594,79 +357,4 @@ export const useAuthStore = create(
   )
 );
 
-// ===== EVENT LISTENERS =====
-
-// Listen for session expiry events
-window.addEventListener('auth:session-expired', () => {
-  const { logout } = useAuthStore.getState();
-  logout();
-});
-
-// Listen for network connection errors
-window.addEventListener('network:connection-error', () => {
-  console.log('🌐 Network connection error detected');
-});
-
-// Listen for system maintenance mode
-window.addEventListener('system:maintenance-mode', () => {
-  console.log('🔧 System maintenance mode detected');
-});
-
-// ===== AXIOS INTERCEPTORS =====
-
-// Request interceptor
-// Trong frontend/src/stores/authStore.js
-apiClient.interceptors.request.use(
-  (config) => {
-    const { tokens } = useAuthStore.getState();
-    if (tokens?.accessToken && !config.headers.Authorization) {
-      config.headers.Authorization = `Bearer ${tokens.accessToken}`;
-      console.log(`Added Authorization header for ${config.url}: Bearer ${tokens.accessToken.substring(0, 10)}...`); // Debug
-    } else if (!tokens?.accessToken) {
-      console.warn(`No access token available for ${config.url}`);
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// Response interceptor for auto token refresh
-// Trong frontend/src/stores/authStore.js
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    
-    // Bỏ qua lỗi không liên quan đến token
-    if (
-      error.response?.status === 401 &&
-      (originalRequest.url.includes('/api/auth/login') ||
-       error.response?.data?.code === 'INVALID_PASSWORD' ||
-       error.response?.data?.code === 'AUTHORIZATION_REQUIRED')
-    ) {
-      console.log(`Skipping logout for error: ${error.response?.data?.code} on ${originalRequest.url}`); // Debug
-      return Promise.reject(error);
-    }
-
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      const { refreshToken } = useAuthStore.getState();
-      const refreshSuccess = await refreshToken();
-      
-      if (refreshSuccess) {
-        const { tokens } = useAuthStore.getState();
-        originalRequest.headers.Authorization = `Bearer ${tokens.accessToken}`;
-        console.log(`Retrying ${originalRequest.url} with new token`); // Debug
-        return apiClient(originalRequest);
-      } else {
-        console.log('Refresh token failed, logging out');
-        useAuthStore.getState().logout();
-      }
-    }
-    
-    return Promise.reject(error);
-  }
-);
-
-// ===== EXPORT =====
 export default useAuthStore;

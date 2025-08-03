@@ -20,7 +20,7 @@ import {
   SaveOutlined,
   CameraOutlined
 } from '@ant-design/icons';
-import { useAuthStore } from '../stores/authStore';
+import useAuthStore from '../stores/authStore';
 import axios from 'axios';
 
 const { Title, Text } = Typography;

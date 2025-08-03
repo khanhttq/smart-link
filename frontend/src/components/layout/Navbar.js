@@ -19,7 +19,7 @@ import {
   LogoutOutlined,
   SettingOutlined
 } from '@ant-design/icons';
-import { useAuthStore } from '../../stores/authStore';
+import useAuthStore from '../../stores/authStore';
 
 const { Header } = Layout;
 const { Text } = Typography;

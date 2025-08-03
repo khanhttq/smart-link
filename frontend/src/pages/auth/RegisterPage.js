@@ -23,7 +23,7 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined
 } from '@ant-design/icons';
-import { useAuthStore } from '../../stores/authStore';
+import useAuthStore from '../../stores/authStore';
 import notificationService from '../../services/notificationService';
 import { ERROR_CODES } from '../../constants/errorCodes';
 import './RegisterPage.less';

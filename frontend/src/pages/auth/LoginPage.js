@@ -1,4 +1,4 @@
-// frontend/src/pages/auth/LoginPage.js - FIX SUBMIT HANDLER
+// frontend/src/pages/auth/LoginPage.js - FIXED with safe smartRegistration
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -19,7 +19,8 @@ import {
   LoginOutlined,
   GoogleOutlined
 } from '@ant-design/icons';
-import { useAuthStore } from '../../stores/authStore';
+// ✅ FIXED: Default import
+import useAuthStore from '../../stores/authStore';
 import SmartRegistrationModal from '../../components/SmartRegistrationModal';
 
 const { Title, Text } = Typography;
@@ -30,15 +31,16 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Auth store
+  // ✅ FIXED: Safe destructuring with fallback
+  const authStore = useAuthStore();
   const { 
     login, 
     loading, 
-    smartRegistration, 
+    smartRegistration = { isVisible: false, email: '', password: '' }, // ✅ Fallback
     hideSmartRegistration 
-  } = useAuthStore();
+  } = authStore;
 
-  // ===== FIXED SUBMIT HANDLER =====
+  // ✅ FIXED: Enhanced submit handler
   const handleSubmit = async (values) => {
     console.log('🚀 Form submit with values:', values);
     try {
@@ -46,6 +48,7 @@ const LoginPage = () => {
         email: values.email?.trim(),
         password: values.password
       };
+      
       console.log('📤 Sending credentials:', { 
         email: credentials.email, 
         passwordProvided: !!credentials.password 
@@ -56,10 +59,11 @@ const LoginPage = () => {
 
       if (result.success) {
         const redirectTo = location.state?.from?.pathname || '/dashboard';
-        console.log(`✅ Login successful, redirecting to: ${redirectTo} in 2 seconds...`);
-        setTimeout(() => navigate(redirectTo, { replace: true }), 2000);
+        console.log(`✅ Login successful, redirecting to: ${redirectTo}`);
+        navigate(redirectTo, { replace: true });
       } else if (result.showSmartRegistration) {
         console.log('📝 Showing smart registration modal');
+        // Modal will show automatically via state change
       }
       // Không cần hiển thị lỗi ở đây vì notificationService đã xử lý
     } catch (error) {
@@ -67,10 +71,12 @@ const LoginPage = () => {
       // Để notificationService xử lý lỗi từ authStore
     }
   };
+
   // Google login handler
   const handleGoogleLogin = () => {
     // TODO: Implement Google OAuth
     console.log('Google login clicked');
+    window.location.href = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
   };
 
   // Smart registration success handler
@@ -91,7 +97,7 @@ const LoginPage = () => {
           <Card className="login-card" variant="borderless">
             <div className="login-header">
               <Link to="/">
-                <img src="/logo.png" alt="Shortlink System" className="login-logo" />
+                <div className="login-logo">📎</div>
               </Link>
               <Title level={3} className="login-title">Shortlink System</Title>
               <Text type="secondary" className="login-subtitle">
@@ -193,14 +199,16 @@ const LoginPage = () => {
         </Col>
       </Row>
 
-      {/* Smart Registration Modal */}
-      <SmartRegistrationModal
-        visible={smartRegistration.isVisible}
-        onCancel={hideSmartRegistration}
-        email={smartRegistration.email}
-        password={smartRegistration.password}
-        onSuccess={handleRegistrationSuccess}
-      />
+      {/* ✅ FIXED: Safe smart registration modal with fallback */}
+      {smartRegistration && (
+        <SmartRegistrationModal
+          visible={smartRegistration.isVisible || false}
+          onCancel={hideSmartRegistration}
+          email={smartRegistration.email || ''}
+          password={smartRegistration.password || ''}
+          onSuccess={handleRegistrationSuccess}
+        />
+      )}
     </div>
   );
 };
