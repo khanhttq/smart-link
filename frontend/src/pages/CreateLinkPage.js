@@ -28,6 +28,7 @@ import {
 
 import apiClient from '../utils/apiClient';
 import useAuthStore from '../stores/authStore';
+import { generateShortUrl, generatePreviewUrl } from '../utils/urlUtils';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -105,9 +106,7 @@ const CreateLinkPage = () => {
     if (!shortCode) return '';
     
     const domain = selectedDomain || domains.find(d => d.isDefault);
-    const domainName = domain?.domain || 'shortlink.com';
-    
-    return `https://${domainName}/${shortCode}`;
+    return generateShortUrl(shortCode, domain);
   };
 
   const handleSubmit = async (values) => {

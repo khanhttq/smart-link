@@ -38,6 +38,7 @@ import dayjs from 'dayjs';
 // ← Thêm các imports còn thiếu
 import useAuthStore from '../stores/authStore';
 import { useLinkStore } from '../stores/linkStore';
+import { generateShortUrl, extractDomainInfo } from '../utils/urlUtils';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
@@ -225,10 +226,8 @@ const DashboardPage = () => {
       dataIndex: 'shortUrl',
       key: 'shortUrl',
       render: (shortUrl, record) => {
-        // Generate full URL with domain
-        const fullUrl = record.domain?.domain 
-          ? `https://${record.domain.domain}/${record.shortCode}`
-          : `${window.location.origin}/${record.shortCode}`;
+        // ✅ FIX: Use correct URL generation
+        const fullUrl = generateShortUrl(record.shortCode, record.domain);
         
         return (
           <Space>
