@@ -1,4 +1,4 @@
-// frontend/src/components/layout/Navbar.js - SIMPLE VERSION
+// frontend/src/components/layout/Navbar.js - FIXED VERSION
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
@@ -8,7 +8,9 @@ import {
   Avatar, 
   Dropdown, 
   Space, 
-  Typography 
+  Typography,
+  Row,
+  Col
 } from 'antd';
 import {
   LinkOutlined,
@@ -89,120 +91,131 @@ const Navbar = () => {
       style={{ 
         background: '#fff', 
         borderBottom: '1px solid #e8e8e8',
-        padding: '0 24px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+        padding: '0 32px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
         position: 'sticky',
         top: 0,
-        zIndex: 1000
+        zIndex: 1000,
+        height: '64px',
+        lineHeight: '64px'
       }}
     >
-      {/* 🎯 Logo & Brand */}
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <Link 
-          to={isAuthenticated ? "/dashboard" : "/"} 
-          style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}
-        >
-          <LinkOutlined style={{ fontSize: 28, color: '#1890ff', marginRight: 12 }} />
-          <Title level={3} style={{ margin: 0, color: '#1890ff', fontWeight: 'bold' }}>
-            Shortlink
-          </Title>
-        </Link>
-      </div>
+      <Row justify="space-between" align="middle" style={{ height: '100%' }}>
+        {/* 🎯 Logo & Brand */}
+        <Col>
+          <Link 
+            to={isAuthenticated ? "/dashboard" : "/"} 
+            style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}
+          >
+            <LinkOutlined style={{ fontSize: 28, color: '#1890ff', marginRight: 12 }} />
+            <Title level={3} style={{ margin: 0, color: '#1890ff', fontWeight: 'bold' }}>
+              Shortlink
+            </Title>
+          </Link>
+        </Col>
 
-      {/* 📱 Navigation Menu - chỉ hiện khi đã login */}
-      {isAuthenticated && (
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-          <Menu
-            mode="horizontal"
-            selectedKeys={[location.pathname]}
-            items={menuItems}
-            style={{ 
-              border: 'none',
-              backgroundColor: 'transparent',
-              fontSize: '15px'
-            }}
-          />
-        </div>
-      )}
-
-      {/* 👤 User Actions */}
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        {isAuthenticated ? (
-          <Space size="middle">
-            {/* Quick Create Button */}
-            <Link to="/create">
-              <Button 
-                type="primary" 
-                icon={<PlusOutlined />}
-                size="middle"
-                style={{ fontWeight: 500 }}
-              >
-                Tạo Link
-              </Button>
-            </Link>
-
-            {/* User Dropdown */}
-            <Dropdown 
-              menu={{ items: userMenuItems }}
-              placement="bottomRight"
-              trigger={['click']}
-            >
-              <Button 
-                type="text" 
+        {/* 📱 Navigation Menu - HIỆN TRỰC TIẾP */}
+        {isAuthenticated && (
+          <Col flex="auto">
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <Menu
+                mode="horizontal"
+                selectedKeys={[location.pathname]}
+                items={menuItems}
                 style={{ 
-                  padding: '8px 12px', 
-                  height: 'auto',
-                  borderRadius: '8px'
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  fontSize: '15px',
+                  fontWeight: '500',
+                  lineHeight: '64px'
                 }}
-              >
-                <Space>
-                  <Avatar 
-                    icon={<UserOutlined />} 
-                    src={user?.avatar}
-                    size="small"
-                    style={{ backgroundColor: '#1890ff' }}
-                  />
-                  <div style={{ textAlign: 'left', lineHeight: '1.2' }}>
-                    <div style={{ 
-                      fontSize: 14, 
-                      fontWeight: 500, 
-                      color: '#262626' 
-                    }}>
-                      {user?.name || 'User'}
-                    </div>
-                    <div style={{ 
-                      fontSize: 12, 
-                      color: '#8c8c8c',
-                      maxWidth: 120,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {user?.email}
-                    </div>
-                  </div>
-                </Space>
-              </Button>
-            </Dropdown>
-          </Space>
-        ) : (
-          <Space size="middle">
-            <Link to="/login">
-              <Button type="default" size="middle">
-                Đăng nhập
-              </Button>
-            </Link>
-            <Link to="/register">
-              <Button type="primary" size="middle">
-                Đăng ký
-              </Button>
-            </Link>
-          </Space>
+                theme="light"
+              />
+            </div>
+          </Col>
         )}
-      </div>
+
+        {/* 👤 User Actions */}
+        <Col>
+          {isAuthenticated ? (
+            <Space size="large" align="center">
+              {/* Quick Create Button */}
+              <Link to="/create">
+                <Button 
+                  type="primary" 
+                  icon={<PlusOutlined />}
+                  size="middle"
+                  style={{ 
+                    fontWeight: 500,
+                    borderRadius: '6px',
+                    height: '36px'
+                  }}
+                >
+                  Tạo Link
+                </Button>
+              </Link>
+
+              {/* User Dropdown */}
+              <Dropdown 
+                menu={{ items: userMenuItems }}
+                placement="bottomRight"
+                trigger={['click']}
+              >
+                <Button 
+                  type="text" 
+                  style={{ 
+                    padding: '8px 12px', 
+                    height: 'auto',
+                    borderRadius: '8px',
+                    border: '1px solid #d9d9d9'
+                  }}
+                >
+                  <Space>
+                    <Avatar 
+                      icon={<UserOutlined />} 
+                      src={user?.avatar}
+                      size="small"
+                      style={{ backgroundColor: '#1890ff' }}
+                    />
+                    <div style={{ textAlign: 'left', lineHeight: '1.3' }}>
+                      <div style={{ 
+                        fontSize: 14, 
+                        fontWeight: 500, 
+                        color: '#262626' 
+                      }}>
+                        {user?.name || 'User'}
+                      </div>
+                      <div style={{ 
+                        fontSize: 12, 
+                        color: '#8c8c8c',
+                        maxWidth: 120,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {user?.email}
+                      </div>
+                    </div>
+                  </Space>
+                </Button>
+              </Dropdown>
+            </Space>
+          ) : (
+            <Space size="middle">
+              <Link to="/login">
+                <Button type="default" size="middle">
+                  Đăng nhập
+                </Button>
+              </Link>
+              <Link to="/register">
+                <Button type="primary" size="middle">
+                  Đăng ký
+                </Button>
+              </Link>
+            </Space>
+          )}
+        </Col>
+      </Row>
     </Header>
   );
 };
