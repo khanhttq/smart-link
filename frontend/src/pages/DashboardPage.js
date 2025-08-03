@@ -34,6 +34,7 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { useLinkStore } from '../stores/linkStore';
 import dayjs from 'dayjs';
+import axios from 'axios';
 
 const { Title, Text } = Typography;
 const { Search } = Input;

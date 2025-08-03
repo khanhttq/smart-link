@@ -1,69 +1,178 @@
-// backend/domains/auth/controllers/AuthController.js - COMPLETE FIXED VERSION
+// backend/domains/auth/controllers/AuthController.js - FIXED VERSION
 const authService = require('../services/AuthService');
-const oauthService = require('../services/OAuthService');
+const cacheService = require('../../../core/cache/CacheService');
+
+// ✅ FIX: Unified error codes for backend
+const ERROR_CODES = {
+  // Authentication
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  INVALID_PASSWORD: 'INVALID_PASSWORD',
+  EMAIL_EXISTS: 'EMAIL_EXISTS',
+  ACCOUNT_DEACTIVATED: 'ACCOUNT_DEACTIVATED',
+  OAUTH_USER_NO_PASSWORD: 'OAUTH_USER_NO_PASSWORD',
+  TOKEN_EXPIRED: 'TOKEN_EXPIRED',
+  TOKEN_INVALID: 'TOKEN_INVALID',
+  TOKEN_REVOKED: 'TOKEN_REVOKED',
+  TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
+  
+  // Validation
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  REQUIRED_FIELD: 'REQUIRED_FIELD',
+  INVALID_EMAIL: 'INVALID_EMAIL',
+  WEAK_PASSWORD: 'WEAK_PASSWORD',
+  
+  // System
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  DATABASE_ERROR: 'DATABASE_ERROR'
+};
+
+// ✅ FIX: Standardized error response format
+const sendErrorResponse = (res, statusCode, errorCode, message, details = null) => {
+  const response = {
+    success: false,
+    code: errorCode,
+    message,
+    timestamp: new Date().toISOString()
+  };
+  
+  // Add details in development mode
+  if (process.env.NODE_ENV === 'development' && details) {
+    response.details = details;
+  }
+  
+  console.error(`❌ Auth Error [${statusCode}]:`, { code: errorCode, message, details });
+  return res.status(statusCode).json(response);
+};
+
+// ✅ FIX: Standardized success response format
+const sendSuccessResponse = (res, message, data = null, statusCode = 200) => {
+  const response = {
+    success: true,
+    message,
+    timestamp: new Date().toISOString()
+  };
+  
+  if (data) {
+    response.data = data;
+  }
+  
+  console.log(`✅ Auth Success [${statusCode}]:`, message);
+  return res.status(statusCode).json(response);
+};
 
 class AuthController {
-  // POST /api/auth/register
+  
+  // ✅ FIX: Enhanced input validation
+  _validateRegistrationInput(data) {
+    const errors = [];
+    
+    if (!data.name || data.name.trim().length < 2) {
+      errors.push('Name must be at least 2 characters long');
+    }
+    
+    if (!data.email) {
+      errors.push('Email is required');
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(data.email)) {
+        errors.push('Invalid email format');
+      }
+    }
+    
+    if (!data.password) {
+      errors.push('Password is required');
+    } else {
+      if (data.password.length < 8) {
+        errors.push('Password must be at least 8 characters long');
+      }
+      if (!/(?=.*[a-z])/.test(data.password)) {
+        errors.push('Password must contain at least one lowercase letter');
+      }
+      if (!/(?=.*[A-Z])/.test(data.password)) {
+        errors.push('Password must contain at least one uppercase letter');
+      }
+      if (!/(?=.*\d)/.test(data.password)) {
+        errors.push('Password must contain at least one number');
+      }
+    }
+    
+    return errors;
+  }
+
+  // POST /api/auth/register - ✅ FIXED VERSION
   async register(req, res) {
     try {
-      const { email, password, name } = req.body;
+      const { name, email, password } = req.body;
 
-      // Validation
-      if (!email || !password || !name) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email, password, and name are required'
-        });
+      // ✅ FIX: Comprehensive input validation
+      const validationErrors = this._validateRegistrationInput({ name, email, password });
+      if (validationErrors.length > 0) {
+        return sendErrorResponse(
+          res, 
+          400, 
+          ERROR_CODES.VALIDATION_ERROR, 
+          'Validation failed',
+          validationErrors
+        );
       }
 
-      // Trim and validate inputs
-      const trimmedEmail = email.trim().toLowerCase();
-      const trimmedName = name.trim();
+      // Sanitize inputs
+      const sanitizedData = {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password: password
+      };
 
-      if (!trimmedEmail || !trimmedName) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email and name cannot be empty'
-        });
-      }
+      const result = await authService.register(sanitizedData, req);
 
-      const result = await authService.register({ 
-        email: trimmedEmail, 
-        password, 
-        name: trimmedName 
-      });
-
-      res.status(201).json({
-        success: true,
-        message: 'User registered successfully',
-        data: {
+      return sendSuccessResponse(
+        res,
+        'Registration successful',
+        {
           user: result.user,
           tokens: result.tokens
-        }
-      });
-    } catch (error) {
-      console.error('❌ Register error:', error);
-      
-      // Handle specific error types
-      let statusCode = 400;
-      let message = error.message;
+        },
+        201
+      );
 
-      if (error.message.includes('already exists')) {
-        statusCode = 409; // Conflict
-        message = 'Email already exists. Please use a different email or login instead.';
-      } else if (error.message.includes('password')) {
-        statusCode = 400;
-        message = 'Password must be at least 8 characters with uppercase, lowercase, and number';
-      } else if (error.message.includes('email')) {
-        statusCode = 400;
-        message = 'Please provide a valid email address';
+    } catch (error) {
+      console.error('❌ Registration Controller Error:', error);
+      
+      // ✅ FIX: Proper error mapping
+      if (error.message.includes('email') && error.message.includes('exists')) {
+        return sendErrorResponse(
+          res,
+          409,
+          ERROR_CODES.EMAIL_EXISTS,
+          'Email already exists. Please use a different email or login instead.'
+        );
+      }
+      
+      if (error.message.includes('password')) {
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.WEAK_PASSWORD,
+          'Password must be at least 8 characters with uppercase, lowercase, and number'
+        );
+      }
+      
+      if (error.message.includes('email')) {
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.INVALID_EMAIL,
+          'Please provide a valid email address'
+        );
       }
 
-      res.status(statusCode).json({
-        success: false,
-        message,
-        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
+      return sendErrorResponse(
+        res,
+        500,
+        ERROR_CODES.INTERNAL_ERROR,
+        'Registration failed',
+        error.stack
+      );
     }
   }
 
@@ -72,14 +181,20 @@ class AuthController {
     try {
       const { email, password } = req.body;
 
+      // ✅ FIX: Input validation
       if (!email || !password) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email and password are required'
-        });
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.REQUIRED_FIELD,
+          'Email and password are required'
+        );
       }
 
-      const result = await authService.login(email.trim().toLowerCase(), password, req);
+      // Sanitize inputs
+      const sanitizedEmail = email.trim().toLowerCase();
+
+      const result = await authService.login(sanitizedEmail, password, req);
 
       // Set session cookie
       if (result.sessionId) {
@@ -91,256 +206,324 @@ class AuthController {
         });
       }
 
-      res.json({
-        success: true,
-        message: 'Login successful',
-        data: {
+      return sendSuccessResponse(
+        res,
+        'Login successful',
+        {
           user: result.user,
           tokens: result.tokens
         }
-      });
-    } catch (error) {
-      console.error('❌ Login Controller Error:', error.message);
-      
-      let statusCode = 401;
-      let message = 'Invalid email or password'; // Default
+      );
 
-      // ✅ FIXED: Handle specific error types from AuthService
+    } catch (error) {
+      console.error('❌ Login Controller Error:', error);
+      
+      // ✅ FIX: Comprehensive error handling with proper codes
       switch (error.message) {
         case 'USER_NOT_FOUND':
-          statusCode = 404;
-          message = 'USER_NOT_FOUND'; // Frontend will handle smart registration
-          break;
+          return sendErrorResponse(
+            res,
+            404,
+            ERROR_CODES.USER_NOT_FOUND,
+            'USER_NOT_FOUND' // Frontend will handle smart registration
+          );
           
         case 'INVALID_PASSWORD':
-          statusCode = 401;
-          message = 'Invalid email or password';
-          break;
+          return sendErrorResponse(
+            res,
+            401,
+            ERROR_CODES.INVALID_PASSWORD,
+            'Invalid email or password'
+          );
           
         case 'ACCOUNT_DEACTIVATED':
-          statusCode = 403;
-          message = 'Your account has been deactivated. Please contact support.';
-          break;
+          return sendErrorResponse(
+            res,
+            403,
+            ERROR_CODES.ACCOUNT_DEACTIVATED,
+            'Your account has been deactivated. Please contact support.'
+          );
           
         case 'OAUTH_USER_NO_PASSWORD':
-          statusCode = 400;
-          message = 'This account was created with Google. Please sign in with Google.';
-          break;
+          return sendErrorResponse(
+            res,
+            400,
+            ERROR_CODES.OAUTH_USER_NO_PASSWORD,
+            'This account was created with Google. Please sign in with Google.'
+          );
           
         case 'Too many login attempts. Please try again later.':
-          statusCode = 429;
-          message = 'Too many login attempts. Please try again later.';
-          break;
-          
-        case 'Valid email is required':
-        case 'Password is required':
-          statusCode = 400;
-          message = error.message;
-          break;
+          return sendErrorResponse(
+            res,
+            429,
+            ERROR_CODES.TOO_MANY_ATTEMPTS,
+            'Too many login attempts. Please try again later.'
+          );
           
         default:
-          // For unknown errors, keep generic message for security
-          console.log('🔍 Unmapped error:', error.message);
-          statusCode = 401;
-          message = 'Invalid email or password';
+          return sendErrorResponse(
+            res,
+            500,
+            ERROR_CODES.INTERNAL_ERROR,
+            'Login failed',
+            error.stack
+          );
       }
-
-      res.status(statusCode).json({
-        success: false,
-        message,
-        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
     }
   }
 
-  // POST /api/auth/logout
+  // POST /api/auth/logout - ✅ FIXED VERSION
   async logout(req, res) {
     try {
       const token = req.token;
-      const sessionId = req.headers['x-session-id'] || req.cookies?.sessionId;
+      const userId = req.user.id;
 
-      await authService.logout(token, sessionId);
+      if (token) {
+        // Add token to blacklist
+        await cacheService.set(`blacklist:${token}`, 'true', 24 * 60 * 60); // 24 hours
+        console.log('🚫 Token blacklisted:', token.substring(0, 20) + '...');
+      }
 
       // Clear session cookie
       res.clearCookie('sessionId');
 
-      res.json({
-        success: true,
-        message: 'Logout successful'
-      });
+      return sendSuccessResponse(res, 'Logout successful');
+
     } catch (error) {
       console.error('❌ Logout error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Logout failed',
-        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
+      return sendErrorResponse(
+        res,
+        500,
+        ERROR_CODES.INTERNAL_ERROR,
+        'Logout failed',
+        error.stack
+      );
     }
   }
 
-  // POST /api/auth/refresh
+  // POST /api/auth/logout-all - ✅ FIXED VERSION
+  async logoutAll(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      // Increment user's token version to invalidate all tokens
+      await authService.invalidateAllUserTokens(userId);
+      
+      // Clear session cookie
+      res.clearCookie('sessionId');
+
+      return sendSuccessResponse(res, 'Logged out from all devices');
+
+    } catch (error) {
+      console.error('❌ Logout all error:', error);
+      return sendErrorResponse(
+        res,
+        500,
+        ERROR_CODES.INTERNAL_ERROR,
+        'Logout all failed',
+        error.stack
+      );
+    }
+  }
+
+  // GET /api/auth/me - ✅ FIXED VERSION
+  async getProfile(req, res) {
+    try {
+      const user = req.user;
+      
+      return sendSuccessResponse(
+        res,
+        'Profile retrieved successfully',
+        { user }
+      );
+
+    } catch (error) {
+      console.error('❌ Get profile error:', error);
+      return sendErrorResponse(
+        res,
+        500,
+        ERROR_CODES.INTERNAL_ERROR,
+        'Failed to get profile',
+        error.stack
+      );
+    }
+  }
+
+  // POST /api/auth/refresh - ✅ FIXED VERSION
   async refresh(req, res) {
     try {
       const { refreshToken } = req.body;
 
       if (!refreshToken) {
-        return res.status(400).json({
-          success: false,
-          message: 'Refresh token required'
-        });
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.REQUIRED_FIELD,
+          'Refresh token is required'
+        );
       }
 
-      const tokens = await authService.refreshTokens(refreshToken);
+      const result = await authService.refreshToken(refreshToken);
 
-      res.json({
-        success: true,
-        message: 'Tokens refreshed successfully',
-        data: { tokens }
-      });
-    } catch (error) {
-      console.error('❌ Refresh error:', error);
-      
-      let statusCode = 401;
-      let message = 'Invalid or expired refresh token';
-
-      if (error.message.includes('required')) {
-        statusCode = 400;
-        message = 'Refresh token is required';
-      }
-
-      res.status(statusCode).json({
-        success: false,
-        message,
-        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
-    }
-  }
-
-  // GET /api/auth/me
-  async getProfile(req, res) {
-    try {
-      // User is already attached by auth middleware
-      res.json({
-        success: true,
-        message: 'Profile retrieved successfully',
-        data: {
-          user: req.user
+      return sendSuccessResponse(
+        res,
+        'Token refreshed successfully',
+        {
+          tokens: result.tokens,
+          user: result.user
         }
-      });
+      );
+
     } catch (error) {
-      console.error('❌ Get profile error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to get profile',
-        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
+      console.error('❌ Refresh token error:', error);
+      
+      if (error.message.includes('expired') || error.message.includes('invalid')) {
+        return sendErrorResponse(
+          res,
+          401,
+          ERROR_CODES.TOKEN_EXPIRED,
+          'Refresh token expired. Please login again.'
+        );
+      }
+
+      return sendErrorResponse(
+        res,
+        500,
+        ERROR_CODES.INTERNAL_ERROR,
+        'Token refresh failed',
+        error.stack
+      );
     }
   }
 
-  // POST /api/auth/logout-all
-  async logoutAll(req, res) {
-    try {
-      await authService.logoutAll(req.user.id);
-
-      // Clear session cookie
-      res.clearCookie('sessionId');
-
-      res.json({
-        success: true,
-        message: 'Logged out from all devices successfully'
-      });
-    } catch (error) {
-      console.error('❌ Logout all error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to logout from all devices',
-        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
-    }
-  }
-
-  // POST /api/auth/change-password
+  // POST /api/auth/change-password - ✅ FIXED VERSION
   async changePassword(req, res) {
     try {
       const { currentPassword, newPassword } = req.body;
       const userId = req.user.id;
 
+      // ✅ FIX: Input validation
       if (!currentPassword || !newPassword) {
-        return res.status(400).json({
-          success: false,
-          message: 'Current password and new password are required'
-        });
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.REQUIRED_FIELD,
+          'Current password and new password are required'
+        );
       }
 
-      // Verify current password
-      const user = await userRepository.findById(userId);
-      const isValidPassword = await user.comparePassword(currentPassword);
-      
-      if (!isValidPassword) {
-        return res.status(401).json({
-          success: false,
-          message: 'Current password is incorrect'
-        });
+      // ✅ FIX: Validate new password strength
+      const passwordErrors = this._validatePassword(newPassword);
+      if (passwordErrors.length > 0) {
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.WEAK_PASSWORD,
+          'Password does not meet requirements',
+          passwordErrors
+        );
       }
 
-      // Validate new password
-      if (!authService.validatePassword(newPassword)) {
-        return res.status(400).json({
-          success: false,
-          message: 'New password must be at least 8 characters with uppercase, lowercase, and number'
-        });
+      if (currentPassword === newPassword) {
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.VALIDATION_ERROR,
+          'New password must be different from current password'
+        );
       }
 
-      // Update password
-      await userRepository.updatePassword(userId, newPassword);
+      await authService.changePassword(userId, currentPassword, newPassword);
 
-      // Logout from all devices to force re-login with new password
-      await authService.logoutAll(userId);
+      return sendSuccessResponse(res, 'Password changed successfully');
 
-      res.json({
-        success: true,
-        message: 'Password changed successfully. Please login again.'
-      });
     } catch (error) {
       console.error('❌ Change password error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to change password',
-        error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
+      
+      if (error.message === 'INVALID_PASSWORD') {
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.INVALID_PASSWORD,
+          'Current password is incorrect'
+        );
+      }
+
+      return sendErrorResponse(
+        res,
+        500,
+        ERROR_CODES.INTERNAL_ERROR,
+        'Failed to change password',
+        error.stack
+      );
     }
   }
 
-  // POST /api/auth/check-email
+  // POST /api/auth/check-email - ✅ FIXED VERSION
   async checkEmail(req, res) {
     try {
       const { email } = req.body;
 
       if (!email) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email is required'
-        });
+        return sendErrorResponse(
+          res,
+          400,
+          ERROR_CODES.REQUIRED_FIELD,
+          'Email is required'
+        );
       }
 
       const normalizedEmail = email.trim().toLowerCase();
       const user = await authService.findUserByEmail(normalizedEmail);
 
-      res.json({
-        success: true,
-        data: {
+      return sendSuccessResponse(
+        res,
+        'Email check completed',
+        {
           exists: !!user,
           hasPassword: user ? !!user.password : false,
           isOAuthUser: user ? !user.password : false
         }
-      });
+      );
+
     } catch (error) {
       console.error('❌ Check email error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      });
+      return sendErrorResponse(
+        res,
+        500,
+        ERROR_CODES.INTERNAL_ERROR,
+        'Email check failed',
+        error.stack
+      );
     }
+  }
+
+  // ✅ FIX: Helper method for password validation
+  _validatePassword(password) {
+    const errors = [];
+    
+    if (!password) {
+      errors.push('Password is required');
+      return errors;
+    }
+    
+    if (password.length < 8) {
+      errors.push('Password must be at least 8 characters long');
+    }
+    
+    if (!/(?=.*[a-z])/.test(password)) {
+      errors.push('Password must contain at least one lowercase letter');
+    }
+    
+    if (!/(?=.*[A-Z])/.test(password)) {
+      errors.push('Password must contain at least one uppercase letter');
+    }
+    
+    if (!/(?=.*\d)/.test(password)) {
+      errors.push('Password must contain at least one number');
+    }
+    
+    return errors;
   }
 }
 

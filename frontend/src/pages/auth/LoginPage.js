@@ -41,51 +41,32 @@ const LoginPage = () => {
   // ===== FIXED SUBMIT HANDLER =====
   const handleSubmit = async (values) => {
     console.log('🚀 Form submit with values:', values);
-    
     try {
-      // Ensure we have proper email and password
       const credentials = {
         email: values.email?.trim(),
         password: values.password
       };
-
       console.log('📤 Sending credentials:', { 
         email: credentials.email, 
         passwordProvided: !!credentials.password 
       });
 
-      // Call login from auth store
       const result = await login(credentials);
-      
       console.log('📥 Login result:', result);
-      
-      // DEBUG: Check state immediately after login
-      setTimeout(() => {
-        const storage = localStorage.getItem('auth-storage');
-        console.log('📦 Storage after login:', storage);
-        console.log('🔍 Parsed storage:', storage ? JSON.parse(storage) : 'empty');
-      }, 100);
 
       if (result.success) {
-        // Redirect to intended page or dashboard with delay to see logs
         const redirectTo = location.state?.from?.pathname || '/dashboard';
         console.log(`✅ Login successful, redirecting to: ${redirectTo} in 2 seconds...`);
-        
-        // Add delay to see debug logs
-        setTimeout(() => {
-          navigate(redirectTo, { replace: true });
-        }, 2000);
+        setTimeout(() => navigate(redirectTo, { replace: true }), 2000);
       } else if (result.showSmartRegistration) {
-        // Smart registration modal will show automatically
         console.log('📝 Showing smart registration modal');
       }
-      // Errors are handled in auth store with notifications
-      
+      // Không cần hiển thị lỗi ở đây vì notificationService đã xử lý
     } catch (error) {
       console.error('❌ Login submission error:', error);
+      // Để notificationService xử lý lỗi từ authStore
     }
   };
-
   // Google login handler
   const handleGoogleLogin = () => {
     // TODO: Implement Google OAuth
