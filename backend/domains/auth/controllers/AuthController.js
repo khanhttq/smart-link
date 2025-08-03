@@ -1,4 +1,4 @@
-// backend/domains/auth/controllers/AuthController.js - FIXED VERSION
+// backend/domains/auth/controllers/AuthController.js - COMPLETE FIXED VERSION
 const authService = require('../services/AuthService');
 const oauthService = require('../services/OAuthService');
 
@@ -67,7 +67,7 @@ class AuthController {
     }
   }
 
-  // POST /api/auth/login
+  // POST /api/auth/login - ✅ FIXED VERSION
   async login(req, res) {
     try {
       const { email, password } = req.body;
@@ -79,7 +79,7 @@ class AuthController {
         });
       }
 
-      const result = await authService.login(email.trim().toLowerCase(), password);
+      const result = await authService.login(email.trim().toLowerCase(), password, req);
 
       // Set session cookie
       if (result.sessionId) {
@@ -100,17 +100,49 @@ class AuthController {
         }
       });
     } catch (error) {
-      console.error('❌ Login error:', error);
+      console.error('❌ Login Controller Error:', error.message);
       
       let statusCode = 401;
-      let message = 'Invalid email or password';
+      let message = 'Invalid email or password'; // Default
 
-      if (error.message.includes('deactivated')) {
-        statusCode = 403;
-        message = 'Your account has been deactivated. Please contact support.';
-      } else if (error.message.includes('required')) {
-        statusCode = 400;
-        message = 'Email and password are required';
+      // ✅ FIXED: Handle specific error types from AuthService
+      switch (error.message) {
+        case 'USER_NOT_FOUND':
+          statusCode = 404;
+          message = 'USER_NOT_FOUND'; // Frontend will handle smart registration
+          break;
+          
+        case 'INVALID_PASSWORD':
+          statusCode = 401;
+          message = 'Invalid email or password';
+          break;
+          
+        case 'ACCOUNT_DEACTIVATED':
+          statusCode = 403;
+          message = 'Your account has been deactivated. Please contact support.';
+          break;
+          
+        case 'OAUTH_USER_NO_PASSWORD':
+          statusCode = 400;
+          message = 'This account was created with Google. Please sign in with Google.';
+          break;
+          
+        case 'Too many login attempts. Please try again later.':
+          statusCode = 429;
+          message = 'Too many login attempts. Please try again later.';
+          break;
+          
+        case 'Valid email is required':
+        case 'Password is required':
+          statusCode = 400;
+          message = error.message;
+          break;
+          
+        default:
+          // For unknown errors, keep generic message for security
+          console.log('🔍 Unmapped error:', error.message);
+          statusCode = 401;
+          message = 'Invalid email or password';
       }
 
       res.status(statusCode).json({
@@ -278,6 +310,7 @@ class AuthController {
       });
     }
   }
+
   // POST /api/auth/check-email
   async checkEmail(req, res) {
     try {
@@ -310,4 +343,5 @@ class AuthController {
     }
   }
 }
+
 module.exports = new AuthController();

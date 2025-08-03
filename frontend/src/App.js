@@ -1,203 +1,135 @@
-// frontend/src/App.js - Updated để tương thích với authStore hoàn chỉnh
-import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider, Layout, Spin, message } from 'antd';
+// frontend/src/App.js - CORRECT FRONTEND VERSION
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { ConfigProvider, App as AntdApp } from 'antd';
 import viVN from 'antd/locale/vi_VN';
-import 'antd/dist/reset.css';
-import './App.css';
 
-// Import components (sử dụng đường dẫn hiện có)
-import Navbar from './components/layout/Navbar';
-import ProtectedRoute, { GuestRoute, AdminRoute, EditorRoute } from './components/auth/ProtectedRoute';
+// Import notification service
+import notificationService from './services/notificationService';
 
 // Import pages
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
-import CreateLinkPage from './pages/CreateLinkPage';
-import AnalyticsPage from './pages/AnalyticsPage';
 import ProfilePage from './pages/ProfilePage';
+import AnalyticsPage from './pages/AnalyticsPage';
+import NotFoundPage from './pages/NotFoundPage';
 
-// Import stores và hooks
-import { useAuthStore } from './stores/authStore';
-import { useAuth } from './hooks/useAuth';
+// Import components
+import Layout from './components/layout/Layout';
+import ProtectedRoute, { GuestRoute } from './components/auth/ProtectedRoute';
+import SmartRegistrationModal from './components/SmartRegistrationModal';
 
-const { Content } = Layout;
+// Import providers - REMOVED AuthProvider (using Zustand instead)
+// import { AuthProvider } from './contexts/AuthContext';
 
-// Component để hiển thị loading app
-const AppLoading = () => (
-  <div style={{ 
-    height: '100vh', 
-    display: 'flex', 
-    alignItems: 'center', 
-    justifyContent: 'center',
-    flexDirection: 'column',
-    gap: 16
-  }}>
-    <Spin size="large" />
-    <div style={{ color: '#666', fontSize: 16 }}>
-      Đang khởi tải ứng dụng...
-    </div>
-  </div>
-);
+// Import styles
+import './App.css';
 
-function App() {
-  // Sử dụng hook useAuth thay vì direct store access
-  const { isAuthenticated, loading, checkAuth } = useAuth();
+// Component để sử dụng useApp hook
+const AppContent = () => {
+  const { message, notification, modal } = AntdApp.useApp();
 
-  // Configure global message
-  message.config({
-    top: 100,
-    duration: 3,
-    maxCount: 3,
-  });
-
-  // Check auth on app mount
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  // Show loading screen while checking auth
-  if (loading) {
-    return <AppLoading />;
-  }
+  // Initialize notification service
+  React.useEffect(() => {
+    notificationService.init(message, notification, modal);
+  }, [message, notification, modal]);
 
   return (
-    <ConfigProvider 
+    // ✅ No AuthProvider needed - Zustand handles state globally
+    <Router>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/" element={<HomePage />} />
+        
+        {/* Guest only routes */}
+        <Route 
+          path="/login" 
+          element={
+            <GuestRoute>
+              <LoginPage />
+            </GuestRoute>
+          } 
+        />
+        <Route 
+          path="/register" 
+          element={
+            <GuestRoute>
+              <RegisterPage />
+            </GuestRoute>
+          } 
+        />
+
+        {/* Protected routes with layout */}
+        <Route path="/dashboard" element={
+          <ProtectedRoute>
+            <Layout>
+              <DashboardPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/profile" element={
+          <ProtectedRoute>
+            <Layout>
+              <ProfilePage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/analytics" element={
+          <ProtectedRoute>
+            <Layout>
+              <AnalyticsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* 404 route */}
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+
+      {/* Global components */}
+      <SmartRegistrationModal />
+    </Router>
+  );
+};
+
+// App Wrapper with Notification Service Integration
+const AppWrapper = () => {
+  return (
+    <AntdApp>
+      <AppContent />
+    </AntdApp>
+  );
+};
+
+// Main App Component
+const App = () => {
+  return (
+    <ConfigProvider
       locale={viVN}
       theme={{
         token: {
           colorPrimary: '#1890ff',
-          borderRadius: 8,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+          borderRadius: 6,
+          fontFamily: '"Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
         },
         components: {
-          Layout: {
-            headerBg: '#fff',
-            headerHeight: 64,
+          Message: {
+            contentBg: 'rgba(255, 255, 255, 0.95)',
+            contentPadding: '12px 16px',
           },
-          Menu: {
-            horizontalItemSelectedColor: '#1890ff',
+          Notification: {
+            width: 400,
           }
         }
       }}
     >
-      <Router>
-        <Layout style={{ minHeight: '100vh' }}>
-          <Navbar />
-          
-          <Content style={{ 
-            padding: '24px', 
-            backgroundColor: '#f5f5f5',
-            minHeight: 'calc(100vh - 64px)'
-          }}>
-            <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-              <Routes>
-                {/* Public routes */}
-                <Route path="/" element={<HomePage />} />
-                
-                {/* Guest only routes - redirect if already authenticated */}
-                <Route 
-                  path="/login" 
-                  element={
-                    <GuestRoute redirectTo="/dashboard">
-                      <LoginPage />
-                    </GuestRoute>
-                  } 
-                />
-                <Route 
-                  path="/register" 
-                  element={
-                    <GuestRoute redirectTo="/dashboard">
-                      <RegisterPage />
-                    </GuestRoute>
-                  } 
-                />
-                
-                {/* Protected routes - require authentication */}
-                <Route 
-                  path="/dashboard" 
-                  element={
-                    <ProtectedRoute>
-                      <DashboardPage />
-                    </ProtectedRoute>
-                  } 
-                />
-                
-                <Route 
-                  path="/create" 
-                  element={
-                    <ProtectedRoute>
-                      <CreateLinkPage />
-                    </ProtectedRoute>
-                  } 
-                />
-                
-                <Route 
-                  path="/analytics" 
-                  element={
-                    <ProtectedRoute>
-                      <AnalyticsPage />
-                    </ProtectedRoute>
-                  } 
-                />
-                
-                <Route 
-                  path="/profile" 
-                  element={
-                    <ProtectedRoute>
-                      <ProfilePage />
-                    </ProtectedRoute>
-                  } 
-                />
-
-                {/* Editor/Admin routes - role-based protection */}
-                <Route 
-                  path="/admin" 
-                  element={
-                    <AdminRoute>
-                      <div>Admin Panel - Coming Soon</div>
-                    </AdminRoute>
-                  } 
-                />
-
-                <Route 
-                  path="/editor" 
-                  element={
-                    <EditorRoute>
-                      <div>Editor Panel - Coming Soon</div>
-                    </EditorRoute>
-                  } 
-                />
-                
-                {/* Catch-all routes */}
-                <Route 
-                  path="/unauthorized" 
-                  element={
-                    <div style={{ textAlign: 'center', padding: '50px' }}>
-                      <h2>Không có quyền truy cập</h2>
-                      <p>Bạn không có đủ quyền để truy cập trang này.</p>
-                    </div>
-                  } 
-                />
-                
-                {/* 404 fallback */}
-                <Route 
-                  path="*" 
-                  element={
-                    isAuthenticated ? 
-                      <Navigate to="/dashboard" replace /> : 
-                      <Navigate to="/" replace />
-                  } 
-                />
-              </Routes>
-            </div>
-          </Content>
-        </Layout>
-      </Router>
+      <AppWrapper />
     </ConfigProvider>
   );
-}
+};
 
 export default App;

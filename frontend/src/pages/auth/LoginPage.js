@@ -1,87 +1,102 @@
-import React, { useState, useEffect } from 'react';
+// frontend/src/pages/auth/LoginPage.js - FIX SUBMIT HANDLER
+import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  Form, 
-  Input, 
-  Button, 
-  Typography, 
-  Space, 
-  Row, 
-  Col, 
-  Card, 
-  Divider, 
-  message,
+import {
+  Form,
+  Input,
+  Button,
+  Card,
+  Typography,
+  Divider,
+  Row,
+  Col,
+  Space,
   Checkbox
 } from 'antd';
 import {
+  MailOutlined,
   LockOutlined,
   LoginOutlined,
-  GoogleOutlined,
-  MailOutlined
+  GoogleOutlined
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 import SmartRegistrationModal from '../../components/SmartRegistrationModal';
-import './LoginPage.less';
 
 const { Title, Text } = Typography;
 
 const LoginPage = () => {
+  const [form] = Form.useForm();
+  const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const [form] = Form.useForm();
-  const [loading, setLoading] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   
+  // Auth store
   const { 
     login, 
-    isAuthenticated, 
-    showRegistrationModal, 
-    registrationData, 
+    loading, 
+    smartRegistration, 
     hideSmartRegistration 
   } = useAuthStore();
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      const redirectTo = location.state?.from?.pathname || '/dashboard';
-      navigate(redirectTo, { replace: true });
-    }
-  }, [isAuthenticated, navigate, location]);
-
+  // ===== FIXED SUBMIT HANDLER =====
   const handleSubmit = async (values) => {
-    setLoading(true);
+    console.log('🚀 Form submit with values:', values);
+    
     try {
-      const result = await login(values.email, values.password);
+      // Ensure we have proper email and password
+      const credentials = {
+        email: values.email?.trim(),
+        password: values.password
+      };
+
+      console.log('📤 Sending credentials:', { 
+        email: credentials.email, 
+        passwordProvided: !!credentials.password 
+      });
+
+      // Call login from auth store
+      const result = await login(credentials);
+      
+      console.log('📥 Login result:', result);
+      
+      // DEBUG: Check state immediately after login
+      setTimeout(() => {
+        const storage = localStorage.getItem('auth-storage');
+        console.log('📦 Storage after login:', storage);
+        console.log('🔍 Parsed storage:', storage ? JSON.parse(storage) : 'empty');
+      }, 100);
+
       if (result.success) {
+        // Redirect to intended page or dashboard with delay to see logs
         const redirectTo = location.state?.from?.pathname || '/dashboard';
-        message.success('Đăng nhập thành công!');
+        console.log(`✅ Login successful, redirecting to: ${redirectTo} in 2 seconds...`);
+        
+        // Add delay to see debug logs
         setTimeout(() => {
           navigate(redirectTo, { replace: true });
-        }, 1000);
-      } else if (result.showRegistration) {
-        console.log('Showing smart registration modal');
+        }, 2000);
+      } else if (result.showSmartRegistration) {
+        // Smart registration modal will show automatically
+        console.log('📝 Showing smart registration modal');
       }
+      // Errors are handled in auth store with notifications
+      
     } catch (error) {
-      message.error('Đăng nhập thất bại. Vui lòng thử lại!');
-    } finally {
-      setLoading(false);
+      console.error('❌ Login submission error:', error);
     }
   };
 
+  // Google login handler
   const handleGoogleLogin = () => {
-    try {
-      const googleUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:4000'}/api/auth/google`;
-      sessionStorage.setItem('oauth_redirect', location.state?.from?.pathname || '/dashboard');
-      window.location.href = googleUrl;
-    } catch (error) {
-      message.error('Không thể kết nối đến Google. Vui lòng thử lại!');
-    }
+    // TODO: Implement Google OAuth
+    console.log('Google login clicked');
   };
 
+  // Smart registration success handler
   const handleRegistrationSuccess = (result) => {
     if (result.success) {
       hideSmartRegistration();
       const redirectTo = location.state?.from?.pathname || '/dashboard';
-      message.success('Đăng ký thành công!');
       setTimeout(() => {
         navigate(redirectTo, { replace: true });
       }, 1000);
@@ -110,6 +125,10 @@ const LoginPage = () => {
               size="large"
               layout="vertical"
               className="login-form"
+              initialValues={{
+                email: '',
+                password: ''
+              }}
             >
               <Form.Item
                 name="email"
@@ -121,16 +140,20 @@ const LoginPage = () => {
                 <Input
                   prefix={<MailOutlined />}
                   placeholder="Email"
+                  autoComplete="email"
                 />
               </Form.Item>
 
               <Form.Item
                 name="password"
-                rules={[{ required: true, message: 'Vui lòng nhập mật khẩu!' }]}
+                rules={[
+                  { required: true, message: 'Vui lòng nhập mật khẩu!' }
+                ]}
               >
                 <Input.Password
                   prefix={<LockOutlined />}
                   placeholder="Mật khẩu"
+                  autoComplete="current-password"
                 />
               </Form.Item>
 
@@ -189,11 +212,12 @@ const LoginPage = () => {
         </Col>
       </Row>
 
+      {/* Smart Registration Modal */}
       <SmartRegistrationModal
-        visible={showRegistrationModal}
+        visible={smartRegistration.isVisible}
         onCancel={hideSmartRegistration}
-        email={registrationData?.email}
-        password={registrationData?.password}
+        email={smartRegistration.email}
+        password={smartRegistration.password}
         onSuccess={handleRegistrationSuccess}
       />
     </div>

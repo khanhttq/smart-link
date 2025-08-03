@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Result, Button, Spin, Alert } from 'antd';
 import { LockOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { useAuth } from '../../hooks/useAuth';
+import { useAuth } from '../../hooks/useAuth'; // ✅ Sử dụng useAuth hook
 
 const ProtectedRoute = ({ 
   children, 
@@ -15,9 +15,7 @@ const ProtectedRoute = ({
     user,
     isAuthenticated, 
     loading, 
-    checkAuth,
-    sessionExpiresAt,
-    isSessionValid
+    checkAuth
   } = useAuth();
   
   const location = useLocation();
@@ -26,6 +24,12 @@ const ProtectedRoute = ({
   // Check auth on mount
   useEffect(() => {
     const initAuth = async () => {
+      console.log('🔍 ProtectedRoute DEBUG:', {
+        isAuthenticated,
+        loading,
+        hasUser: !!user
+      });
+      
       if (!isAuthenticated && !loading) {
         await checkAuth();
       }
@@ -96,29 +100,14 @@ const ProtectedRoute = ({
     }
   }
 
-  // Show session warning if needed
-  const isNearExpiry = sessionExpiresAt && 
-    new Date(sessionExpiresAt) - new Date() <= 5 * 60 * 1000 && 
-    new Date(sessionExpiresAt) - new Date() > 0;
-
   return (
     <>
-      {isNearExpiry && (
-        <Alert
-          message="Phiên đăng nhập sắp hết hạn"
-          description="Phiên của bạn sẽ hết hạn trong 5 phút. Vui lòng lưu công việc."
-          type="warning"
-          showIcon
-          closable
-          style={{ margin: '16px 0' }}
-        />
-      )}
       {children}
     </>
   );
 };
 
-// Guest Route - chỉ cho phép user chưa đăng nhập
+// Guest Route - chỉ cho phép user chưa đăng nhập  
 export const GuestRoute = ({ children, redirectTo = '/dashboard' }) => {
   const { isAuthenticated, loading } = useAuth();
 
