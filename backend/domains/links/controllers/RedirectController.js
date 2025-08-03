@@ -1,4 +1,4 @@
-// backend/domains/links/controllers/RedirectController.js - UPDATED với Multi-Domain Support
+// backend/domains/links/controllers/RedirectController.js - FIXED METHOD BINDING
 const linkService = require('../services/LinkService');
 const domainService = require('../services/DomainService');
 
@@ -8,7 +8,7 @@ class RedirectController {
    * GET /:shortCode - Universal redirect handler
    * Handles both system domain and custom domain redirects
    */
-  async handleRedirect(req, res) {
+  handleRedirect = async (req, res) => {  // ✅ Arrow function để bind this
     try {
       const { shortCode } = req.params;
       const hostDomain = req.get('Host');
@@ -16,8 +16,27 @@ class RedirectController {
       
       console.log(`🔗 Redirect request: ${hostDomain}/${shortCode}`);
       
+      // ✅ FIX 1: Handle favicon.ico and other static files
+      if (shortCode === 'favicon.ico' || shortCode.includes('.')) {
+        return res.status(404).json({
+          success: false,
+          message: 'Not found',
+          shortCode: shortCode
+        });
+      }
+      
+      // ✅ FIX 2: Validate shortCode format early
+      if (!this.isValidShortCode(shortCode)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid short code format',
+          shortCode: shortCode
+        });
+      }
+      
       // Extract domain name (remove port if present)
-      const domainName = hostDomain ? hostDomain.split(':')[0].toLowerCase() : null;
+      const domainName = hostDomain ? 
+        hostDomain.split(':')[0].toLowerCase() : null;
       
       // Determine if this is a custom domain or system domain
       let targetDomain = null;
@@ -34,13 +53,13 @@ class RedirectController {
       
       // Collect click data
       const clickData = {
-        ipAddress: req.ip || req.connection.remoteAddress || '127.0.0.1',
+        ipAddress: this.getClientIP(req),
         userAgent: userAgent,
         referrer: req.get('Referer') || null,
         timestamp: new Date()
       };
       
-      // Get user location (basic implementation)
+      // ✅ FIX 3: Ensure method binding with proper context
       const userLocation = await this.getUserLocation(clickData.ipAddress);
       
       // Process click and get redirect info
@@ -77,22 +96,28 @@ class RedirectController {
 
     } catch (error) {
       console.error('❌ Redirect error:', error);
-      return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      message: 'Redirect service temporarily unavailable'
-});
+      return this.handleInternalError(res, error);
     }
   }
 
   /**
    * GET /preview/:shortCode - Preview link without redirect
    */
-  async preview(req, res) {
+  preview = async (req, res) => {  // ✅ Arrow function
     try {
       const { shortCode } = req.params;
       const hostDomain = req.get('Host');
-      const domainName = hostDomain ? hostDomain.split(':')[0].toLowerCase() : null;
+      const domainName = hostDomain ? 
+        hostDomain.split(':')[0].toLowerCase() : null;
+      
+      // ✅ FIX 4: Add validation for preview as well
+      if (!this.isValidShortCode(shortCode)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid short code format',
+          shortCode: shortCode
+        });
+      }
       
       // Determine target domain
       let targetDomain = null;
@@ -157,17 +182,27 @@ class RedirectController {
   /**
    * POST /:shortCode/password - Handle password-protected links
    */
-  async handlePasswordSubmission(req, res) {
+  handlePasswordSubmission = async (req, res) => {  // ✅ Arrow function
     try {
       const { shortCode } = req.params;
       const { password } = req.body;
       const hostDomain = req.get('Host');
-      const domainName = hostDomain ? hostDomain.split(':')[0].toLowerCase() : null;
+      const domainName = hostDomain ? 
+        hostDomain.split(':')[0].toLowerCase() : null;
       
       if (!password) {
         return res.status(400).json({
           success: false,
           message: 'Password is required'
+        });
+      }
+      
+      // ✅ FIX 5: Add validation here too
+      if (!this.isValidShortCode(shortCode)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid short code format',
+          shortCode: shortCode
         });
       }
       
@@ -216,7 +251,8 @@ class RedirectController {
       if (result.blocked) {
         return res.status(403).json({
           success: false,
-          message: result.reason === 'expired' ? 'Link has expired' : 'Access blocked',
+          message: result.reason === 'expired' ? 
+            'Link has expired' : 'Access blocked',
           blocked: true,
           reason: result.reason
         });
@@ -244,7 +280,7 @@ class RedirectController {
   /**
    * Handle domain not found
    */
-  handleDomainNotFound(res, domainName, shortCode) {
+  handleDomainNotFound = (res, domainName, shortCode) => {  // ✅ Arrow function
     console.log(`❌ Domain not found: ${domainName}`);
     
     return res.status(404).json({
@@ -259,7 +295,7 @@ class RedirectController {
   /**
    * Handle link not found
    */
-  handleLinkNotFound(res, shortCode, domainName) {
+  handleLinkNotFound = (res, shortCode, domainName) => {  // ✅ Arrow function
     console.log(`❌ Link not found: ${domainName || 'system'}/${shortCode}`);
     
     return res.status(404).json({
@@ -273,7 +309,7 @@ class RedirectController {
   /**
    * Handle blocked links
    */
-  handleBlockedLink(res, result, shortCode) {
+  handleBlockedLink = (res, result, shortCode) => {  // ✅ Arrow function
     const statusCode = result.reason === 'expired' ? 410 : 403;
     const message = result.reason === 'expired' 
       ? 'This link has expired' 
@@ -293,7 +329,7 @@ class RedirectController {
   /**
    * Handle password-protected links
    */
-  handlePasswordProtected(res, result, shortCode) {
+  handlePasswordProtected = (res, result, shortCode) => {  // ✅ Arrow function
     console.log(`🔒 Password required: ${shortCode}`);
     
     return res.status(401).json({
@@ -309,7 +345,7 @@ class RedirectController {
   /**
    * Handle bot traffic
    */
-  handleBotTraffic(res, result, shortCode) {
+  handleBotTraffic = (res, result, shortCode) => {  // ✅ Arrow function
     console.log(`🤖 Bot detected: ${shortCode}`);
     
     // For bots, return link info instead of redirecting
@@ -326,7 +362,9 @@ class RedirectController {
   /**
    * Handle internal errors
    */
-  handleInternalError(res, error) {
+  handleInternalError = (res, error) => {  // ✅ Arrow function
+    console.log('❌ Internal error:', error.message);
+    
     return res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -339,18 +377,19 @@ class RedirectController {
   /**
    * Get client IP address
    */
-  getClientIP(req) {
+  getClientIP = (req) => {  // ✅ Arrow function
     return req.ip || 
            req.connection.remoteAddress || 
            req.socket.remoteAddress ||
-           (req.connection.socket ? req.connection.socket.remoteAddress : null) ||
+           (req.connection.socket ? 
+             req.connection.socket.remoteAddress : null) ||
            '127.0.0.1';
   }
 
   /**
    * Get user location from IP (basic implementation)
    */
-  async getUserLocation(ipAddress) {
+  getUserLocation = async (ipAddress) => {  // ✅ Arrow function
     try {
       // In production, you'd use a GeoIP service like MaxMind or ipapi
       // For now, return null (no location data)
@@ -376,7 +415,7 @@ class RedirectController {
   /**
    * Detect if user agent is a bot
    */
-  isBot(userAgent) {
+  isBot = (userAgent) => {  // ✅ Arrow function
     if (!userAgent) return false;
     
     const botPatterns = [
@@ -393,9 +432,10 @@ class RedirectController {
   /**
    * Validate shortCode format
    */
-  isValidShortCode(shortCode) {
+  isValidShortCode = (shortCode) => {  // ✅ Arrow function
     return /^[a-zA-Z0-9_-]+$/.test(shortCode) && shortCode.length >= 1 && shortCode.length <= 50;
   }
 }
 
+// ✅ FIX 6: Export the class correctly to maintain method binding
 module.exports = new RedirectController();
