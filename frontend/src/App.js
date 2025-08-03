@@ -16,6 +16,8 @@ import CreateLinkPage from './pages/CreateLinkPage';
 import ProfilePage from './pages/ProfilePage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import NotFoundPage from './pages/NotFoundPage';
+import DomainManagementPage from './pages/DomainManagementPage';
+
 
 // Import components
 import Navbar from './components/layout/Navbar';
@@ -114,6 +116,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <SimpleLayout>
               <AnalyticsPage />
+            </SimpleLayout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/domains" element={
+          <ProtectedRoute>
+            <SimpleLayout>
+              <DomainManagementPage />
             </SimpleLayout>
           </ProtectedRoute>
         } />

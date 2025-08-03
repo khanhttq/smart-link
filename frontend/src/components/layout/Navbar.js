@@ -17,7 +17,8 @@ import {
   BarChartOutlined,
   UserOutlined,
   LogoutOutlined,
-  SettingOutlined
+  SettingOutlined,
+  GlobalOutlined
 } from '@ant-design/icons';
 import useAuthStore from '../../stores/authStore';
 
@@ -50,6 +51,11 @@ const Navbar = () => {
       key: '/analytics',
       icon: <BarChartOutlined />,
       label: <Link to="/analytics">Analytics</Link>,
+    },
+    {
+      key: '/domains',
+      icon: <GlobalOutlined />,
+      label: <Link to="/domains">Domains</Link>,
     },
   ];
 

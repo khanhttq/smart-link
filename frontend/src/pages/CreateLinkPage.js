@@ -1,5 +1,5 @@
-// frontend/src/pages/CreateLinkPage.js - FIXED VERSION
-import React, { useState } from 'react';
+// frontend/src/pages/CreateLinkPage.js - FIXED với Domain Selector đơn giản
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Card, 
@@ -9,42 +9,111 @@ import {
   Typography, 
   Alert,
   Divider,
-  message
+  message,
+  Select,
+  Space,
+  Tooltip,
+  Tag,
+  Row,
+  Col
 } from 'antd';
 import { 
   LinkOutlined, 
   ThunderboltOutlined,
-  CopyOutlined 
+  CopyOutlined,
+  GlobalOutlined,
+  InfoCircleOutlined,
+  PlusOutlined
 } from '@ant-design/icons';
 
-// ✅ CRITICAL: Sử dụng apiClient thống nhất thay vì tạo instance mới
 import apiClient from '../utils/apiClient';
 import useAuthStore from '../stores/authStore';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+const { Option } = Select;
 
 const CreateLinkPage = () => {
-  // ✅ FIXED: Lấy token từ store với tên thống nhất
   const { token, isAuthenticated, user } = useAuthStore();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
+  const [domains, setDomains] = useState([]);
+  const [domainsLoading, setDomainsLoading] = useState(false);
+  const [selectedDomain, setSelectedDomain] = useState(null);
 
-  // ✅ Check auth on component mount
-  React.useEffect(() => {
+  // Check auth on component mount
+  useEffect(() => {
     if (!isAuthenticated || !token) {
       message.error('Vui lòng đăng nhập trước!');
       navigate('/login');
+    } else {
+      fetchDomains();
     }
   }, [isAuthenticated, token, navigate]);
+
+  const fetchDomains = async () => {
+    setDomainsLoading(true);
+    try {
+      const response = await apiClient.get('/api/domains');
+      
+      if (response.data.success) {
+        // Add default domain to the list
+        const allDomains = [
+          {
+            id: null,
+            domain: 'shortlink.com',
+            displayName: 'shortlink.com (Mặc định)',
+            isVerified: true,
+            isActive: true,
+            isDefault: true
+          },
+          ...response.data.data.filter(d => d.isVerified && d.isActive)
+        ];
+        
+        setDomains(allDomains);
+        // Set default domain as selected
+        setSelectedDomain(allDomains[0]);
+        form.setFieldsValue({ domainId: null });
+      }
+    } catch (error) {
+      console.error('Failed to fetch domains:', error);
+      // Set only default domain if API fails
+      const defaultDomain = {
+        id: null,
+        domain: 'shortlink.com',
+        displayName: 'shortlink.com (Mặc định)',
+        isVerified: true,
+        isActive: true,
+        isDefault: true
+      };
+      setDomains([defaultDomain]);
+      setSelectedDomain(defaultDomain);
+    } finally {
+      setDomainsLoading(false);
+    }
+  };
+
+  const handleDomainChange = (domainId) => {
+    const domain = domains.find(d => d.id === domainId);
+    setSelectedDomain(domain);
+    setPreviewData(null); // Clear preview when domain changes
+  };
+
+  const generatePreviewUrl = (shortCode) => {
+    if (!shortCode) return '';
+    
+    const domain = selectedDomain || domains.find(d => d.isDefault);
+    const domainName = domain?.domain || 'shortlink.com';
+    
+    return `https://${domainName}/${shortCode}`;
+  };
 
   const handleSubmit = async (values) => {
     setLoading(true);
     
     try {
-      // ✅ Double check auth
       if (!isAuthenticated || !token) {
         message.error('Vui lòng đăng nhập trước!');
         navigate('/login');
@@ -52,42 +121,45 @@ const CreateLinkPage = () => {
       }
 
       console.log('🔗 Creating link for user:', user?.email);
-      console.log('🔑 Using token:', token?.substring(0, 10) + '...');
+      console.log('🌐 Selected domain:', selectedDomain?.domain || 'default');
 
-      // ✅ FIXED: Sử dụng apiClient thống nhất (đã có Authorization header)
-      const response = await apiClient.post('/api/links', {
+      const requestData = {
         originalUrl: values.originalUrl,
         shortCode: values.customShortCode || undefined,
+        domainId: values.domainId,
         title: values.title || undefined,
         campaign: values.campaign || undefined,
         description: values.description || undefined
-      });
+      };
 
+      const response = await apiClient.post('/api/links', requestData);
       const data = response.data?.data;
       
-      if (!data?.shortCode || !data?.shortUrl) {
+      if (!data?.shortCode) {
         throw new Error('Định dạng phản hồi không hợp lệ');
       }
       
-      const { shortCode, shortUrl } = data;
-      
       message.success('Liên kết đã được tạo thành công!');
       
-      // Store created link data for display
+      // Generate full URL based on domain
+      const fullShortUrl = data.fullShortUrl || generatePreviewUrl(data.shortCode);
+      
       setPreviewData({
-        shortCode,
-        shortUrl,
+        shortCode: data.shortCode,
+        shortUrl: fullShortUrl,
         originalUrl: values.originalUrl,
-        title: values.title || 'Không có tiêu đề'
+        title: values.title || 'Không có tiêu đề',
+        domain: selectedDomain?.domain || 'shortlink.com'
       });
       
-      // Reset form
+      // Reset form but keep domain selection
+      const currentDomainId = form.getFieldValue('domainId');
       form.resetFields();
+      form.setFieldsValue({ domainId: currentDomainId });
       
     } catch (error) {
       console.error('❌ Create link error:', error);
       
-      // Handle specific errors
       if (error.response?.status === 401) {
         message.error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
         navigate('/login');
@@ -99,7 +171,6 @@ const CreateLinkPage = () => {
       } else {
         message.error(error.message || 'Có lỗi xảy ra khi tạo liên kết');
       }
-      
     } finally {
       setLoading(false);
     }
@@ -113,7 +184,6 @@ const CreateLinkPage = () => {
     });
   };
 
-  // ✅ Show loading if checking auth
   if (!isAuthenticated) {
     return (
       <div style={{ textAlign: 'center', padding: '50px' }}>
@@ -139,7 +209,65 @@ const CreateLinkPage = () => {
           layout="vertical"
           onFinish={handleSubmit}
           disabled={loading}
+          initialValues={{ domainId: null }}
         >
+          {/* Domain Selection - Simplified */}
+          <Form.Item
+            label={
+              <Space>
+                <GlobalOutlined />
+                <Text>Domain</Text>
+                <Tooltip title="Chọn domain để tạo shortlink. Default domain luôn khả dụng.">
+                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                </Tooltip>
+              </Space>
+            }
+            name="domainId"
+          >
+            <Select
+              placeholder="Chọn domain"
+              onChange={handleDomainChange}
+              loading={domainsLoading}
+              size="large"
+              suffixIcon={<GlobalOutlined />}
+            >
+              {domains.map(domain => (
+                <Option key={domain.id || 'default'} value={domain.id}>
+                  {domain.domain}
+                  {domain.isDefault && <Text type="secondary"> (Mặc định)</Text>}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          {/* Preview URL */}
+          {selectedDomain && (
+            <Alert
+              message={
+                <div>
+                  <Text strong>Domain được chọn: </Text>
+                  <Text code>{selectedDomain.domain}</Text>
+                  {selectedDomain.isDefault && (
+                    <Tag color="blue" size="small" style={{ marginLeft: 8 }}>Mặc định</Tag>
+                  )}
+                </div>
+              }
+              type="info"
+              style={{ marginBottom: 16 }}
+              action={
+                <Button 
+                  size="small" 
+                  type="link"
+                  onClick={() => navigate('/domains')}
+                  icon={<PlusOutlined />}
+                >
+                  Quản lý domains
+                </Button>
+              }
+            />
+          )}
+
+          {/* Original URL */}
           <Form.Item
             label="URL gốc"
             name="originalUrl"
@@ -155,12 +283,27 @@ const CreateLinkPage = () => {
             />
           </Form.Item>
 
+          {/* Custom Short Code */}
           <Form.Item
             label="Mã ngắn tùy chỉnh (tùy chọn)"
             name="customShortCode"
             rules={[
-              { pattern: /^[a-zA-Z0-9-_]+$/, message: 'Chỉ cho phép chữ cái, số, dấu gạch ngang và gạch dưới' }
+              { 
+                pattern: /^[a-zA-Z0-9-_]+$/, 
+                message: 'Chỉ cho phép chữ cái, số, dấu gạch ngang và gạch dưới' 
+              },
+              {
+                min: 3,
+                message: 'Mã ngắn phải có ít nhất 3 ký tự'
+              }
             ]}
+            extra={
+              selectedDomain && (
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  URL sẽ là: https://{selectedDomain.domain}/your-custom-code
+                </Text>
+              )
+            }
           >
             <Input
               placeholder="my-custom-code"
@@ -169,25 +312,31 @@ const CreateLinkPage = () => {
             />
           </Form.Item>
 
-          <Form.Item
-            label="Tiêu đề (tùy chọn)"
-            name="title"
-          >
-            <Input
-              placeholder="Tiêu đề mô tả cho liên kết"
-              size="large"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Campaign (tùy chọn)"
-            name="campaign"
-          >
-            <Input
-              placeholder="utm_campaign_name"
-              size="large"
-            />
-          </Form.Item>
+          {/* Additional Options */}
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="Tiêu đề (tùy chọn)"
+                name="title"
+              >
+                <Input
+                  placeholder="Tiêu đề mô tả cho liên kết"
+                  size="large"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="Campaign (tùy chọn)"
+                name="campaign"
+              >
+                <Input
+                  placeholder="utm_campaign_name"
+                  size="large"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item
             label="Mô tả (tùy chọn)"
@@ -213,27 +362,41 @@ const CreateLinkPage = () => {
           </Form.Item>
         </Form>
 
-        {/* ✅ Success preview */}
+        {/* Success Preview */}
         {previewData && (
           <>
             <Divider />
             <Alert
               message="Liên kết đã được tạo thành công!"
               description={
-                <div style={{ marginTop: 10 }}>
-                  <div><strong>URL gốc:</strong> {previewData.originalUrl}</div>
-                  <div><strong>URL ngắn:</strong> 
-                    <Button
-                      type="link"
-                      icon={<CopyOutlined />}
-                      onClick={() => copyToClipboard(previewData.shortUrl)}
-                    >
-                      {previewData.shortUrl}
-                    </Button>
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <div>
+                    <Text strong>URL gốc:</Text>
+                    <br />
+                    <Text copyable>{previewData.originalUrl}</Text>
                   </div>
-                  <div><strong>Mã:</strong> {previewData.shortCode}</div>
-                  <div><strong>Tiêu đề:</strong> {previewData.title}</div>
-                </div>
+                  <div>
+                    <Text strong>URL ngắn:</Text>
+                    <br />
+                    <Space>
+                      <Button
+                        type="link"
+                        icon={<CopyOutlined />}
+                        onClick={() => copyToClipboard(previewData.shortUrl)}
+                        style={{ padding: 0 }}
+                      >
+                        {previewData.shortUrl}
+                      </Button>
+                      <Tag color="blue">{previewData.domain}</Tag>
+                    </Space>
+                  </div>
+                  <div>
+                    <Text strong>Mã:</Text> <Text code>{previewData.shortCode}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Tiêu đề:</Text> <Text>{previewData.title}</Text>
+                  </div>
+                </Space>
               }
               type="success"
               showIcon

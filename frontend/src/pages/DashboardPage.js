@@ -1,45 +1,50 @@
-// frontend/src/pages/DashboardPage.js - FIXED DOUBLE API CALLS
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { 
-  Card, 
-  Row, 
-  Col, 
-  Statistic, 
-  Table, 
-  Input, 
-  Select, 
-  Button, 
-  Space, 
-  Typography, 
-  Tag, 
-  Popconfirm,
-  Empty,
-  message,
+// frontend/src/pages/DashboardPage.js - FIXED IMPORTS
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom'; // ← Thêm useLocation
+import {
+  Card,
+  Table,
+  Button,
+  Space,
+  Typography,
+  Statistic,
+  Row,
+  Col,
+  Tag,
   Tooltip,
+  Popconfirm,
+  Alert,
+  Input,
+  Select,
+  Empty,
   Spin,
-  Alert
+  message
 } from 'antd';
 import {
-  PlusOutlined,
   LinkOutlined,
   EyeOutlined,
   BarChartOutlined,
-  CopyOutlined,
-  DeleteOutlined,
   EditOutlined,
-  SearchOutlined,
-  ReloadOutlined
+  DeleteOutlined,
+  CopyOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  UserOutlined,
+  GlobalOutlined,
+  SearchOutlined
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
+
+// ← Thêm các imports còn thiếu
 import useAuthStore from '../stores/authStore';
 import { useLinkStore } from '../stores/linkStore';
-import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
 const { Option } = Select;
 
 const DashboardPage = () => {
+  const navigate = useNavigate(); // ← Thêm hook navigate
   const location = useLocation();
   const { user } = useAuthStore();
   const { links, stats, loading, fetchLinks, fetchStats, deleteLink } = useLinkStore();
@@ -115,6 +120,12 @@ const DashboardPage = () => {
     }
   };
 
+  // ← Thêm function handleEdit
+  const handleEdit = (record) => {
+    // TODO: Implement edit functionality
+    message.info('Chức năng chỉnh sửa đang được phát triển');
+  };
+
   // Filter links safely
   const filteredLinks = safeLinks.filter(link => {
     const matchesSearch = !searchTerm || 
@@ -172,83 +183,130 @@ const DashboardPage = () => {
   // Table columns configuration
   const columns = [
     {
-      title: 'Liên Kết',
+      title: 'Liên kết',
       key: 'link',
       render: (_, record) => (
-        <div>
-          <div style={{ fontWeight: 500, marginBottom: 4 }}>
-            {record.title || 'Không có tiêu đề'}
-          </div>
-          <div style={{ fontSize: 12, color: '#666' }}>
-            <Text 
-              copyable={{ text: `${window.location.origin}/${record.shortCode}` }}
-              style={{ color: '#1890ff' }}
+        <Space direction="vertical" size={2}>
+          <Space>
+            <Text strong style={{ color: '#1890ff' }}>
+              {record.title || `Link ${record.shortCode}`}
+            </Text>
+            {record.campaign && (
+              <Tag color="blue" size="small">
+                {record.campaign}
+              </Tag>
+            )}
+          </Space>
+          <Space>
+            {/* Domain indicator */}
+            <Tag 
+              color={record.domain?.domain === 'shortlink.com' ? 'default' : 'purple'} 
+              size="small"
+              icon={<GlobalOutlined />}
             >
-              {window.location.origin}/{record.shortCode}
+              {record.domain?.domain || 'shortlink.com'}
+            </Tag>
+            <Text code copyable style={{ fontSize: 12 }}>
+              {record.shortCode}
             </Text>
-          </div>
-          <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-            <Text ellipsis style={{ maxWidth: 300 }}>
-              {record.originalUrl}
-            </Text>
-          </div>
-        </div>
+          </Space>
+          <Text 
+            type="secondary" 
+            ellipsis={{ tooltip: record.originalUrl }}
+            style={{ fontSize: 12, maxWidth: 300 }}
+          >
+            {record.originalUrl}
+          </Text>
+        </Space>
       ),
     },
     {
-      title: 'Clicks',
-      dataIndex: 'clicks',
-      key: 'clicks',
-      width: 80,
-      render: (clicks) => (
-        <Statistic 
-          value={clicks || 0} 
-          valueStyle={{ fontSize: 16 }}
-        />
+      title: 'URL ngắn',
+      dataIndex: 'shortUrl',
+      key: 'shortUrl',
+      render: (shortUrl, record) => {
+        // Generate full URL with domain
+        const fullUrl = record.domain?.domain 
+          ? `https://${record.domain.domain}/${record.shortCode}`
+          : `${window.location.origin}/${record.shortCode}`;
+        
+        return (
+          <Space>
+            <Button
+              type="link"
+              icon={<CopyOutlined />}
+              onClick={() => copyToClipboard(fullUrl)}
+              style={{ padding: 0 }}
+            >
+              Copy
+            </Button>
+            <Button
+              type="link"
+              icon={<EyeOutlined />}
+              onClick={() => window.open(fullUrl, '_blank')}
+              style={{ padding: 0 }}
+            >
+              Xem
+            </Button>
+          </Space>
+        );
+      },
+    },
+    {
+      title: 'Thống kê',
+      key: 'stats',
+      render: (_, record) => (
+        <Space direction="vertical" size={2}>
+          <Space>
+            <EyeOutlined style={{ color: '#52c41a' }} />
+            <Text strong>{record.clickCount || 0}</Text>
+            <Text type="secondary">clicks</Text>
+          </Space>
+          <Space>
+            <UserOutlined style={{ color: '#1890ff' }} />
+            <Text strong>{record.uniqueClicks || 0}</Text>
+            <Text type="secondary">unique</Text>
+          </Space>
+        </Space>
       ),
     },
     {
-      title: 'Campaign',
-      dataIndex: 'campaign',
-      key: 'campaign',
-      width: 120,
-      render: (campaign) => 
-        campaign ? <Tag color="blue">{campaign}</Tag> : <Text type="secondary">-</Text>,
-    },
-    {
-      title: 'Ngày Tạo',
+      title: 'Ngày tạo',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 120,
-      render: (date) => dayjs(date).format('DD/MM/YYYY'),
+      render: (date) => (
+        <Space direction="vertical" size={2}>
+          <Text>{dayjs(date).format('DD/MM/YYYY')}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {dayjs(date).format('HH:mm')}
+          </Text>
+        </Space>
+      ),
+      sorter: (a, b) => dayjs(a.createdAt).unix() - dayjs(b.createdAt).unix(),
     },
     {
-      title: 'Hành Động',
+      title: 'Hành động',
       key: 'actions',
-      width: 150,
       render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="Xem Analytics">
-            <Link to={`/analytics?link=${record.id}`}>
-              <Button 
-                type="text" 
-                icon={<BarChartOutlined />} 
-                size="small"
-              />
-            </Link>
-          </Tooltip>
-          
-          <Tooltip title="Sao Chép Link">
+        <Space>
+          <Tooltip title="Xem analytics">
             <Button
               type="text"
-              icon={<CopyOutlined />}
+              icon={<BarChartOutlined />}
               size="small"
-              onClick={() => copyToClipboard(`${window.location.origin}/${record.shortCode}`)}
+              onClick={() => navigate(`/analytics?link=${record.id}`)}
             />
           </Tooltip>
-          
+          <Tooltip title="Chỉnh sửa">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() => handleEdit(record)}
+            />
+          </Tooltip>
           <Popconfirm
-            title="Xóa liên kết này?"
+            title="Xóa liên kết"
             description="Hành động này không thể hoàn tác."
             onConfirm={() => handleDelete(record.id, record.shortCode)}
             okText="Xóa"
