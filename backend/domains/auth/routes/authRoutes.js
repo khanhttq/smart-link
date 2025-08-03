@@ -53,7 +53,7 @@ router.post('/logout-all',
 );
 
 // Get current user profile
-router.get('/me', 
+router.get('/info', 
   authMiddleware.verifyToken, 
   authController.getProfile
 );

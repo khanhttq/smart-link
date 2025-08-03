@@ -1,81 +1,400 @@
-// domains/links/controllers/RedirectController.js
+// backend/domains/links/controllers/RedirectController.js - UPDATED với Multi-Domain Support
 const linkService = require('../services/LinkService');
+const domainService = require('../services/DomainService');
 
 class RedirectController {
-  // GET /:shortCode - Handle redirect
+  
+  /**
+   * GET /:shortCode - Universal redirect handler
+   * Handles both system domain and custom domain redirects
+   */
   async handleRedirect(req, res) {
     try {
       const { shortCode } = req.params;
+      const hostDomain = req.get('Host');
+      const userAgent = req.get('User-Agent') || '';
+      
+      console.log(`🔗 Redirect request: ${hostDomain}/${shortCode}`);
+      
+      // Extract domain name (remove port if present)
+      const domainName = hostDomain ? hostDomain.split(':')[0].toLowerCase() : null;
+      
+      // Determine if this is a custom domain or system domain
+      let targetDomain = null;
+      const systemDomain = (process.env.SYSTEM_DOMAIN || 'localhost').split(':')[0].toLowerCase();
+      
+      if (domainName && domainName !== systemDomain) {
+        // This is potentially a custom domain request
+        targetDomain = await domainService.getDomainByName(domainName);
+        
+        if (!targetDomain) {
+          return this.handleDomainNotFound(res, domainName, shortCode);
+        }
+      }
       
       // Collect click data
       const clickData = {
-        ipAddress: req.ip,
-        userAgent: req.get('User-Agent'),
-        referrer: req.get('Referer'),
+        ipAddress: req.ip || req.connection.remoteAddress || '127.0.0.1',
+        userAgent: userAgent,
+        referrer: req.get('Referer') || null,
         timestamp: new Date()
       };
-
-      // Process click and get redirect URL
-      const result = await linkService.processClick(shortCode, clickData);
+      
+      // Get user location (basic implementation)
+      const userLocation = await this.getUserLocation(clickData.ipAddress);
+      
+      // Process click and get redirect info
+      const result = await linkService.processClick(
+        shortCode, 
+        targetDomain?.domain || null, 
+        clickData, 
+        userLocation
+      );
 
       if (!result) {
-        return res.status(404).json({
-          success: false,
-          message: 'Link not found or inactive',
-          shortCode: shortCode
-        });
+        return this.handleLinkNotFound(res, shortCode, domainName);
+      }
+      
+      // Handle special cases
+      if (result.blocked) {
+        return this.handleBlockedLink(res, result, shortCode);
+      }
+      
+      if (result.passwordRequired) {
+        return this.handlePasswordProtected(res, result, shortCode);
       }
 
-      // Log click for analytics
-      console.log(`Click processed: ${shortCode} -> ${result.originalUrl}`);
+      // Log successful click
+      console.log(`✅ Click processed: ${domainName || systemDomain}/${shortCode} -> ${result.originalUrl}`);
 
-      // Redirect to original URL
+      // Handle bot traffic differently
+      if (this.isBot(userAgent)) {
+        return this.handleBotTraffic(res, result, shortCode);
+      }
+
+      // Perform redirect
       res.redirect(302, result.originalUrl);
 
     } catch (error) {
-      console.error('Redirect error:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message,
-        message: 'Redirect service temporarily unavailable'
-      });
+      console.error('❌ Redirect error:', error);
+      return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: 'Redirect service temporarily unavailable'
+});
     }
   }
 
-  // GET /api/preview/:shortCode - Preview link (no redirect)
+  /**
+   * GET /preview/:shortCode - Preview link without redirect
+   */
   async preview(req, res) {
     try {
       const { shortCode } = req.params;
+      const hostDomain = req.get('Host');
+      const domainName = hostDomain ? hostDomain.split(':')[0].toLowerCase() : null;
       
-      const link = await linkService.getLinkByShortCode(shortCode);
+      // Determine target domain
+      let targetDomain = null;
+      const systemDomain = (process.env.SYSTEM_DOMAIN || 'localhost').split(':')[0].toLowerCase();
+      
+      if (domainName && domainName !== systemDomain) {
+        targetDomain = await domainService.getDomainByName(domainName);
+      }
+      
+      const link = await linkService.getLinkByShortCode(
+        shortCode, 
+        targetDomain?.domain || null
+      );
 
       if (!link) {
         return res.status(404).json({
           success: false,
-          message: 'Link not found'
+          message: 'Link not found',
+          shortCode: shortCode,
+          domain: domainName
         });
       }
 
+      // Build preview data
+      const previewData = {
+        shortCode: shortCode,
+        shortUrl: link.fullShortUrl,
+        originalUrl: link.originalUrl,
+        title: link.title || 'Untitled Link',
+        description: link.description || null,
+        domain: {
+          name: link.domain?.domain || 'system',
+          displayName: link.domain?.displayName || 'System Domain'
+        },
+        stats: {
+          clicks: link.clickCount,
+          uniqueClicks: link.uniqueClicks,
+          createdAt: link.createdAt
+        },
+        metadata: link.urlMetadata || {},
+        isActive: link.isActive,
+        isExpired: link.isExpired(),
+        requiresPassword: !!link.password,
+        hasGeoRestrictions: !!(link.geoRestrictions && Object.keys(link.geoRestrictions).length > 0)
+      };
+
       res.json({
         success: true,
-        data: {
-          shortCode: shortCode,
-          originalUrl: link.originalUrl,
-          title: link.title || 'Untitled',
-          description: link.description || '',
-          createdAt: link.createdAt,
-          isActive: link.isActive
-        }
+        data: previewData
       });
 
     } catch (error) {
-      console.error('Preview error:', error);
+      console.error('❌ Preview error:', error);
       res.status(500).json({
         success: false,
         error: error.message,
         message: 'Failed to preview link'
       });
     }
+  }
+
+  /**
+   * POST /:shortCode/password - Handle password-protected links
+   */
+  async handlePasswordSubmission(req, res) {
+    try {
+      const { shortCode } = req.params;
+      const { password } = req.body;
+      const hostDomain = req.get('Host');
+      const domainName = hostDomain ? hostDomain.split(':')[0].toLowerCase() : null;
+      
+      if (!password) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password is required'
+        });
+      }
+      
+      // Determine target domain
+      let targetDomain = null;
+      const systemDomain = (process.env.SYSTEM_DOMAIN || 'localhost').split(':')[0].toLowerCase();
+      
+      if (domainName && domainName !== systemDomain) {
+        targetDomain = await domainService.getDomainByName(domainName);
+      }
+      
+      // Collect click data with password
+      const clickData = {
+        ipAddress: this.getClientIP(req),
+        userAgent: req.get('User-Agent') || '',
+        referrer: req.get('Referer') || null,
+        timestamp: new Date(),
+        password: password,
+        passwordProvided: true
+      };
+      
+      const userLocation = await this.getUserLocation(clickData.ipAddress);
+      
+      const result = await linkService.processClick(
+        shortCode, 
+        targetDomain?.domain || null, 
+        clickData, 
+        userLocation
+      );
+      
+      if (!result) {
+        return res.status(404).json({
+          success: false,
+          message: 'Link not found'
+        });
+      }
+      
+      if (result.passwordRequired) {
+        return res.status(401).json({
+          success: false,
+          message: result.error || 'Invalid password',
+          passwordRequired: true
+        });
+      }
+      
+      if (result.blocked) {
+        return res.status(403).json({
+          success: false,
+          message: result.reason === 'expired' ? 'Link has expired' : 'Access blocked',
+          blocked: true,
+          reason: result.reason
+        });
+      }
+      
+      // Success - return redirect URL
+      res.json({
+        success: true,
+        redirectUrl: result.originalUrl,
+        message: 'Password verified successfully'
+      });
+
+    } catch (error) {
+      console.error('❌ Password submission error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'Failed to process password'
+      });
+    }
+  }
+
+  // ===== ERROR HANDLERS =====
+
+  /**
+   * Handle domain not found
+   */
+  handleDomainNotFound(res, domainName, shortCode) {
+    console.log(`❌ Domain not found: ${domainName}`);
+    
+    return res.status(404).json({
+      success: false,
+      message: 'Domain not found or not configured',
+      domain: domainName,
+      shortCode: shortCode,
+      suggestion: 'Please check domain configuration'
+    });
+  }
+
+  /**
+   * Handle link not found
+   */
+  handleLinkNotFound(res, shortCode, domainName) {
+    console.log(`❌ Link not found: ${domainName || 'system'}/${shortCode}`);
+    
+    return res.status(404).json({
+      success: false,
+      message: 'Link not found or inactive',
+      shortCode: shortCode,
+      domain: domainName || 'system'
+    });
+  }
+
+  /**
+   * Handle blocked links
+   */
+  handleBlockedLink(res, result, shortCode) {
+    const statusCode = result.reason === 'expired' ? 410 : 403;
+    const message = result.reason === 'expired' 
+      ? 'This link has expired' 
+      : 'Access to this link is restricted';
+    
+    console.log(`🚫 Link blocked: ${shortCode} - ${result.reason}`);
+    
+    return res.status(statusCode).json({
+      success: false,
+      message: message,
+      blocked: true,
+      reason: result.reason,
+      shortCode: shortCode
+    });
+  }
+
+  /**
+   * Handle password-protected links
+   */
+  handlePasswordProtected(res, result, shortCode) {
+    console.log(`🔒 Password required: ${shortCode}`);
+    
+    return res.status(401).json({
+      success: false,
+      message: 'This link is password protected',
+      passwordRequired: true,
+      shortCode: shortCode,
+      link: result.link,
+      error: result.error || null
+    });
+  }
+
+  /**
+   * Handle bot traffic
+   */
+  handleBotTraffic(res, result, shortCode) {
+    console.log(`🤖 Bot detected: ${shortCode}`);
+    
+    // For bots, return link info instead of redirecting
+    return res.json({
+      success: true,
+      message: 'Link information for bot',
+      shortCode: shortCode,
+      originalUrl: result.originalUrl,
+      title: result.link.title,
+      isBot: true
+    });
+  }
+
+  /**
+   * Handle internal errors
+   */
+  handleInternalError(res, error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: 'Redirect service temporarily unavailable'
+    });
+  }
+
+  // ===== HELPER METHODS =====
+
+  /**
+   * Get client IP address
+   */
+  getClientIP(req) {
+    return req.ip || 
+           req.connection.remoteAddress || 
+           req.socket.remoteAddress ||
+           (req.connection.socket ? req.connection.socket.remoteAddress : null) ||
+           '127.0.0.1';
+  }
+
+  /**
+   * Get user location from IP (basic implementation)
+   */
+  async getUserLocation(ipAddress) {
+    try {
+      // In production, you'd use a GeoIP service like MaxMind or ipapi
+      // For now, return null (no location data)
+      return null;
+      
+      /* Example with ipapi:
+      const axios = require('axios');
+      const response = await axios.get(`http://ip-api.com/json/${ipAddress}`);
+      if (response.data.status === 'success') {
+        return {
+          country: response.data.countryCode,
+          city: response.data.city,
+          region: response.data.regionName
+        };
+      }
+      */
+    } catch (error) {
+      console.log('Failed to get user location:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Detect if user agent is a bot
+   */
+  isBot(userAgent) {
+    if (!userAgent) return false;
+    
+    const botPatterns = [
+      'bot', 'crawler', 'spider', 'scraper',
+      'googlebot', 'bingbot', 'yahoobot',
+      'facebookexternalhit', 'twitterbot',
+      'linkedinbot', 'whatsapp', 'telegram'
+    ];
+    
+    const ua = userAgent.toLowerCase();
+    return botPatterns.some(pattern => ua.includes(pattern));
+  }
+
+  /**
+   * Validate shortCode format
+   */
+  isValidShortCode(shortCode) {
+    return /^[a-zA-Z0-9_-]+$/.test(shortCode) && shortCode.length >= 1 && shortCode.length <= 50;
   }
 }
 

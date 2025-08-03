@@ -36,10 +36,10 @@ apiClient.interceptors.request.use(
     console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.url}`);
     
     // Add timestamp to prevent caching (only for non-refresh requests)
-    if (!config.url.includes('/refresh')) {
-      if (!config.params) config.params = {};
-      config.params._t = Date.now();
-    }
+    //if (!config.url.includes('/refresh')) {
+      //if (!config.params) config.params = {};
+      //config.params._t = Date.now();
+    //}
     
     // ✅ CRITICAL FIX: Đọc token từ authStore format thống nhất
     if (!config.headers.Authorization) {

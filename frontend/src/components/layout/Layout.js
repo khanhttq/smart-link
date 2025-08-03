@@ -29,11 +29,6 @@ const Layout = ({ children }) => {
       label: 'Dashboard',
     },
     {
-      key: '/links', 
-      icon: <LinkOutlined />,
-      label: 'Quản lý Links',
-    },
-    {
       key: '/analytics',
       icon: <BarChartOutlined />,
       label: 'Analytics',

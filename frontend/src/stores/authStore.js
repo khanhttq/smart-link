@@ -247,7 +247,7 @@ const useAuthStore = create()(
           }
           
           // Verify token with server
-          const response = await apiClient.get('/api/auth/me');
+          const response = await apiClient.get('/api/auth/info');
           const { user } = response.data.data;
           
           set({ user, isAuthenticated: true });

@@ -1,4 +1,4 @@
-// frontend/src/components/layout/Navbar.js
+// frontend/src/components/layout/Navbar.js - SIMPLE VERSION
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
@@ -22,7 +22,7 @@ import {
 import useAuthStore from '../../stores/authStore';
 
 const { Header } = Layout;
-const { Text } = Typography;
+const { Title } = Typography;
 
 const Navbar = () => {
   const location = useLocation();
@@ -64,6 +64,7 @@ const Navbar = () => {
       key: 'settings',
       icon: <SettingOutlined />,
       label: 'Cài đặt',
+      disabled: true, // Tạm thời disable
     },
     {
       type: 'divider',
@@ -81,26 +82,33 @@ const Navbar = () => {
     <Header 
       style={{ 
         background: '#fff', 
-        borderBottom: '1px solid #f0f0f0',
+        borderBottom: '1px solid #e8e8e8',
         padding: '0 24px',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between'
+        justifyContent: 'space-between',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000
       }}
     >
-      {/* Logo & Brand */}
+      {/* 🎯 Logo & Brand */}
       <div style={{ display: 'flex', alignItems: 'center' }}>
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-          <LinkOutlined style={{ fontSize: 24, color: '#1890ff', marginRight: 8 }} />
-          <Typography.Title level={4} style={{ margin: 0, color: '#1890ff' }}>
+        <Link 
+          to={isAuthenticated ? "/dashboard" : "/"} 
+          style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}
+        >
+          <LinkOutlined style={{ fontSize: 28, color: '#1890ff', marginRight: 12 }} />
+          <Title level={3} style={{ margin: 0, color: '#1890ff', fontWeight: 'bold' }}>
             Shortlink
-          </Typography.Title>
+          </Title>
         </Link>
       </div>
 
-      {/* Navigation Menu */}
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-        {isAuthenticated && (
+      {/* 📱 Navigation Menu - chỉ hiện khi đã login */}
+      {isAuthenticated && (
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
           <Menu
             mode="horizontal"
             selectedKeys={[location.pathname]}
@@ -108,13 +116,13 @@ const Navbar = () => {
             style={{ 
               border: 'none',
               backgroundColor: 'transparent',
-              minWidth: 300
+              fontSize: '15px'
             }}
           />
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* User Actions */}
+      {/* 👤 User Actions */}
       <div style={{ display: 'flex', alignItems: 'center' }}>
         {isAuthenticated ? (
           <Space size="middle">
@@ -124,6 +132,7 @@ const Navbar = () => {
                 type="primary" 
                 icon={<PlusOutlined />}
                 size="middle"
+                style={{ fontWeight: 500 }}
               >
                 Tạo Link
               </Button>
@@ -135,18 +144,37 @@ const Navbar = () => {
               placement="bottomRight"
               trigger={['click']}
             >
-              <Button type="text" style={{ padding: '4px 8px', height: 'auto' }}>
+              <Button 
+                type="text" 
+                style={{ 
+                  padding: '8px 12px', 
+                  height: 'auto',
+                  borderRadius: '8px'
+                }}
+              >
                 <Space>
                   <Avatar 
                     icon={<UserOutlined />} 
                     src={user?.avatar}
                     size="small"
+                    style={{ backgroundColor: '#1890ff' }}
                   />
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>
+                  <div style={{ textAlign: 'left', lineHeight: '1.2' }}>
+                    <div style={{ 
+                      fontSize: 14, 
+                      fontWeight: 500, 
+                      color: '#262626' 
+                    }}>
                       {user?.name || 'User'}
                     </div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
+                    <div style={{ 
+                      fontSize: 12, 
+                      color: '#8c8c8c',
+                      maxWidth: 120,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
                       {user?.email}
                     </div>
                   </div>
@@ -155,14 +183,14 @@ const Navbar = () => {
             </Dropdown>
           </Space>
         ) : (
-          <Space>
+          <Space size="middle">
             <Link to="/login">
-              <Button type="default">
+              <Button type="default" size="middle">
                 Đăng nhập
               </Button>
             </Link>
             <Link to="/register">
-              <Button type="primary">
+              <Button type="primary" size="middle">
                 Đăng ký
               </Button>
             </Link>

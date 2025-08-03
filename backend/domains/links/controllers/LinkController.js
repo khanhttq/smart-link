@@ -1,4 +1,3 @@
-// domains/links/controllers/LinkController.js
 const linkService = require('../services/LinkService');
 const config = require('../../../config');
 
@@ -52,7 +51,9 @@ class LinkController {
 
       // Add shortUrl to each link
       const apiUrl = config.app.apiUrl || process.env.API_URL || 'http://localhost:4000';
-      const linksWithShortUrl = result.rows.map(link => ({
+      const links = result.links || result.rows || []; // Fallback to empty array if both are undefined
+      
+      const linksWithShortUrl = links.map(link => ({
         ...link.toJSON(),
         shortUrl: `${apiUrl}/${link.shortCode}`
       }));
@@ -61,11 +62,11 @@ class LinkController {
         success: true,
         data: {
           links: linksWithShortUrl,
-          pagination: {
-            total: result.count,
+          pagination: result.pagination || {
+            total: result.count || links.length,
             limit: options.limit,
             offset: options.offset,
-            hasMore: (options.offset + options.limit) < result.count
+            hasMore: (options.offset + options.limit) < (result.count || links.length)
           }
         }
       });

@@ -60,52 +60,82 @@ const sendSuccessResponse = (res, message, data = null, statusCode = 200) => {
   return res.status(statusCode).json(response);
 };
 
-class AuthController {
+// ✅ FIX: Standalone validation function (outside class)
+const validateRegistrationInput = (data) => {
+  const errors = [];
   
-  // ✅ FIX: Enhanced input validation
-  _validateRegistrationInput(data) {
-    const errors = [];
-    
-    if (!data.name || data.name.trim().length < 2) {
-      errors.push('Name must be at least 2 characters long');
+  if (!data.name || data.name.trim().length < 2) {
+    errors.push('Name must be at least 2 characters long');
+  }
+  
+  if (!data.email) {
+    errors.push('Email is required');
+  } else {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(data.email)) {
+      errors.push('Invalid email format');
     }
-    
-    if (!data.email) {
-      errors.push('Email is required');
-    } else {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(data.email)) {
-        errors.push('Invalid email format');
-      }
+  }
+  
+  if (!data.password) {
+    errors.push('Password is required');
+  } else {
+    if (data.password.length < 8) {
+      errors.push('Password must be at least 8 characters long');
     }
-    
-    if (!data.password) {
-      errors.push('Password is required');
-    } else {
-      if (data.password.length < 8) {
-        errors.push('Password must be at least 8 characters long');
-      }
-      if (!/(?=.*[a-z])/.test(data.password)) {
-        errors.push('Password must contain at least one lowercase letter');
-      }
-      if (!/(?=.*[A-Z])/.test(data.password)) {
-        errors.push('Password must contain at least one uppercase letter');
-      }
-      if (!/(?=.*\d)/.test(data.password)) {
-        errors.push('Password must contain at least one number');
-      }
+    if (!/(?=.*[a-z])/.test(data.password)) {
+      errors.push('Password must contain at least one lowercase letter');
     }
-    
+    if (!/(?=.*[A-Z])/.test(data.password)) {
+      errors.push('Password must contain at least one uppercase letter');
+    }
+    if (!/(?=.*\d)/.test(data.password)) {
+      errors.push('Password must contain at least one number');
+    }
+  }
+  
+  return errors;
+};
+
+// ✅ FIX: Standalone password validation function
+const validatePassword = (password) => {
+  const errors = [];
+  
+  if (!password) {
+    errors.push('Password is required');
     return errors;
   }
+  
+  if (password.length < 8) {
+    errors.push('Password must be at least 8 characters long');
+  }
+  
+  if (!/(?=.*[a-z])/.test(password)) {
+    errors.push('Password must contain at least one lowercase letter');
+  }
+  
+  if (!/(?=.*[A-Z])/.test(password)) {
+    errors.push('Password must contain at least one uppercase letter');
+  }
+  
+  if (!/(?=.*\d)/.test(password)) {
+    errors.push('Password must contain at least one number');
+  }
+  
+  return errors;
+};
 
+class AuthController {
+  
   // POST /api/auth/register - ✅ FIXED VERSION
   async register(req, res) {
     try {
       const { name, email, password } = req.body;
 
-      // ✅ FIX: Comprehensive input validation
-      const validationErrors = this._validateRegistrationInput({ name, email, password });
+      console.log('📝 Registration attempt:', { name, email, hasPassword: !!password });
+
+      // ✅ FIX: Use standalone validation function
+      const validationErrors = validateRegistrationInput({ name, email, password });
       if (validationErrors.length > 0) {
         return sendErrorResponse(
           res, 
@@ -148,24 +178,15 @@ class AuthController {
         );
       }
       
-      if (error.message.includes('password')) {
+      if (error.message.includes('validation')) {
         return sendErrorResponse(
           res,
           400,
-          ERROR_CODES.WEAK_PASSWORD,
-          'Password must be at least 8 characters with uppercase, lowercase, and number'
+          ERROR_CODES.VALIDATION_ERROR,
+          error.message
         );
       }
       
-      if (error.message.includes('email')) {
-        return sendErrorResponse(
-          res,
-          400,
-          ERROR_CODES.INVALID_EMAIL,
-          'Please provide a valid email address'
-        );
-      }
-
       return sendErrorResponse(
         res,
         500,
@@ -181,7 +202,7 @@ class AuthController {
     try {
       const { email, password } = req.body;
 
-      // ✅ FIX: Input validation
+      // Basic validation
       if (!email || !password) {
         return sendErrorResponse(
           res,
@@ -191,20 +212,7 @@ class AuthController {
         );
       }
 
-      // Sanitize inputs
-      const sanitizedEmail = email.trim().toLowerCase();
-
-      const result = await authService.login(sanitizedEmail, password, req);
-
-      // Set session cookie
-      if (result.sessionId) {
-        res.cookie('sessionId', result.sessionId, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'strict',
-          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-        });
-      }
+      const result = await authService.login(email, password, req);
 
       return sendSuccessResponse(
         res,
@@ -218,14 +226,14 @@ class AuthController {
     } catch (error) {
       console.error('❌ Login Controller Error:', error);
       
-      // ✅ FIX: Comprehensive error handling with proper codes
+      // Enhanced error handling
       switch (error.message) {
         case 'USER_NOT_FOUND':
           return sendErrorResponse(
             res,
-            404,
+            401,
             ERROR_CODES.USER_NOT_FOUND,
-            'USER_NOT_FOUND' // Frontend will handle smart registration
+            'No account found with this email address'
           );
           
         case 'INVALID_PASSWORD':
@@ -233,7 +241,7 @@ class AuthController {
             res,
             401,
             ERROR_CODES.INVALID_PASSWORD,
-            'Invalid email or password'
+            'Incorrect password'
           );
           
         case 'ACCOUNT_DEACTIVATED':
@@ -241,7 +249,7 @@ class AuthController {
             res,
             403,
             ERROR_CODES.ACCOUNT_DEACTIVATED,
-            'Your account has been deactivated. Please contact support.'
+            'Account has been deactivated. Please contact support.'
           );
           
         case 'OAUTH_USER_NO_PASSWORD':
@@ -326,7 +334,7 @@ class AuthController {
     }
   }
 
-  // GET /api/auth/me - ✅ FIXED VERSION
+  // GET /api/auth/info - ✅ FIXED VERSION (changed from /me)
   async getProfile(req, res) {
     try {
       const user = req.user;
@@ -385,7 +393,7 @@ class AuthController {
           'Refresh token expired. Please login again.'
         );
       }
-
+      
       return sendErrorResponse(
         res,
         500,
@@ -402,7 +410,7 @@ class AuthController {
       const { currentPassword, newPassword } = req.body;
       const userId = req.user.id;
 
-      // ✅ FIX: Input validation
+      // Validate inputs
       if (!currentPassword || !newPassword) {
         return sendErrorResponse(
           res,
@@ -412,8 +420,8 @@ class AuthController {
         );
       }
 
-      // ✅ FIX: Validate new password strength
-      const passwordErrors = this._validatePassword(newPassword);
+      // ✅ FIX: Use standalone validation function
+      const passwordErrors = validatePassword(newPassword);
       if (passwordErrors.length > 0) {
         return sendErrorResponse(
           res,
@@ -424,15 +432,6 @@ class AuthController {
         );
       }
 
-      if (currentPassword === newPassword) {
-        return sendErrorResponse(
-          res,
-          400,
-          ERROR_CODES.VALIDATION_ERROR,
-          'New password must be different from current password'
-        );
-      }
-
       await authService.changePassword(userId, currentPassword, newPassword);
 
       return sendSuccessResponse(res, 'Password changed successfully');
@@ -440,7 +439,7 @@ class AuthController {
     } catch (error) {
       console.error('❌ Change password error:', error);
       
-      if (error.message === 'INVALID_PASSWORD') {
+      if (error.message.includes('current password')) {
         return sendErrorResponse(
           res,
           400,
@@ -448,12 +447,12 @@ class AuthController {
           'Current password is incorrect'
         );
       }
-
+      
       return sendErrorResponse(
         res,
         500,
         ERROR_CODES.INTERNAL_ERROR,
-        'Failed to change password',
+        'Password change failed',
         error.stack
       );
     }
@@ -473,8 +472,7 @@ class AuthController {
         );
       }
 
-      const normalizedEmail = email.trim().toLowerCase();
-      const user = await authService.findUserByEmail(normalizedEmail);
+      const user = await authService.findUserByEmail(email.trim().toLowerCase());
 
       return sendSuccessResponse(
         res,
@@ -497,34 +495,7 @@ class AuthController {
       );
     }
   }
-
-  // ✅ FIX: Helper method for password validation
-  _validatePassword(password) {
-    const errors = [];
-    
-    if (!password) {
-      errors.push('Password is required');
-      return errors;
-    }
-    
-    if (password.length < 8) {
-      errors.push('Password must be at least 8 characters long');
-    }
-    
-    if (!/(?=.*[a-z])/.test(password)) {
-      errors.push('Password must contain at least one lowercase letter');
-    }
-    
-    if (!/(?=.*[A-Z])/.test(password)) {
-      errors.push('Password must contain at least one uppercase letter');
-    }
-    
-    if (!/(?=.*\d)/.test(password)) {
-      errors.push('Password must contain at least one number');
-    }
-    
-    return errors;
-  }
 }
 
+// ✅ FIX: Export instance, not class
 module.exports = new AuthController();

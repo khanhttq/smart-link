@@ -174,6 +174,8 @@ app.use('/api/auth', authLimiter, authDomain.routes);
 // Links routes (moderate rate limiting for creation)
 app.use('/api/links', linksDomain.routes.main);
 
+app.use('/api/domains', linksDomain.routes.domains);
+
 // Other routes (general rate limiting only)
 app.use('/api/analytics', analyticsDomain.routes);
 app.use('/api/users', usersDomain.routes);

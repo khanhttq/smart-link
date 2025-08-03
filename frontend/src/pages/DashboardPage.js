@@ -1,5 +1,5 @@
-// frontend/src/pages/DashboardPage.js - FIXED VERSION
-import React, { useState, useEffect } from 'react';
+// frontend/src/pages/DashboardPage.js - FIXED DOUBLE API CALLS
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   Card, 
@@ -34,7 +34,6 @@ import {
 import useAuthStore from '../stores/authStore';
 import { useLinkStore } from '../stores/linkStore';
 import dayjs from 'dayjs';
-import axios from 'axios';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
@@ -47,6 +46,7 @@ const DashboardPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCampaign, setSelectedCampaign] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // ===== FIX: Safe stats with default fallback =====
   const safeStats = stats || { 
@@ -60,33 +60,49 @@ const DashboardPage = () => {
   // ===== FIX: Safe links array =====
   const safeLinks = Array.isArray(links) ? links : [];
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        await Promise.all([
-          fetchLinks(),
-          fetchStats()
-        ]);
+  // ✅ FIX: Memoize load function to prevent recreation
+  const loadDashboardData = useCallback(async () => {
+    if (isInitialized) return; // Prevent double loading
+    
+    try {
+      console.log('🔄 Loading dashboard data...');
+      await Promise.all([
+        fetchLinks(),
+        fetchStats()
+      ]);
 
-        // Show success message if coming from create page
-        if (location.state?.newLink) {
-          message.success(`Liên kết ${location.state.newLink.shortCode} đã được tạo!`);
-          // Clear the state to prevent showing message again
-          window.history.replaceState(null, '');
-        }
-      } catch (error) {
-        console.error('Error loading dashboard data:', error);
-        message.error('Có lỗi khi tải dữ liệu dashboard');
+      // Show success message if coming from create page
+      if (location.state?.newLink) {
+        message.success(`Liên kết ${location.state.newLink.shortCode} đã được tạo!`);
+        // Clear the state to prevent showing message again
+        window.history.replaceState(null, '');
       }
-    };
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      message.error('Có lỗi khi tải dữ liệu dashboard');
+    } finally {
+      setIsInitialized(true);
+    }
+  }, [isInitialized, fetchLinks, fetchStats, location.state]);
 
-    loadData();
-  }, [fetchLinks, fetchStats, location.state]);
+  // ✅ FIX: Remove functions from dependencies, use ref instead
+  useEffect(() => {
+    loadDashboardData();
+  }, []); // ✅ Empty dependencies to run only once
 
-  // Refresh data
+  // ✅ Separate effect for location state changes
+  useEffect(() => {
+    if (location.state?.newLink && isInitialized) {
+      message.success(`Liên kết ${location.state.newLink.shortCode} đã được tạo!`);
+      window.history.replaceState(null, '');
+    }
+  }, [location.state, isInitialized]);
+
+  // Refresh data manually
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
+      console.log('🔄 Manual refresh dashboard data...');
       await Promise.all([
         fetchLinks(),
         fetchStats()
@@ -153,177 +169,122 @@ const DashboardPage = () => {
     }
   };
 
-  // Use environment variable or fallback
-  const baseUrl = process.env.REACT_APP_BASE_URL || 
-                  process.env.REACT_APP_API_URL?.replace('/api', '') || 
-                  'http://localhost:4000';
-
-  // Table columns
+  // Table columns configuration
   const columns = [
     {
-      title: 'Liên kết',
+      title: 'Liên Kết',
       key: 'link',
       render: (_, record) => (
         <div>
           <div style={{ fontWeight: 500, marginBottom: 4 }}>
             {record.title || 'Không có tiêu đề'}
           </div>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-            <Text ellipsis style={{ maxWidth: 300 }}>
-              <strong>Gốc:</strong> {record.originalUrl}
+          <div style={{ fontSize: 12, color: '#666' }}>
+            <Text 
+              copyable={{ text: `${window.location.origin}/${record.shortCode}` }}
+              style={{ color: '#1890ff' }}
+            >
+              {window.location.origin}/{record.shortCode}
             </Text>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Text code style={{ color: '#1890ff' }}>
-              {baseUrl}/{record.shortCode}
+          <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+            <Text ellipsis style={{ maxWidth: 300 }}>
+              {record.originalUrl}
             </Text>
-            <Button 
-              type="link" 
-              icon={<CopyOutlined />} 
-              size="small"
-              style={{ padding: 0, height: 'auto' }}
-              onClick={() => copyToClipboard(`${baseUrl}/${record.shortCode}`)}
-            />
           </div>
         </div>
       ),
     },
     {
-      title: 'Chiến dịch',
-      dataIndex: 'campaign',
-      key: 'campaign',
-      width: 120,
-      render: (campaign) => campaign ? <Tag color="blue">{campaign}</Tag> : '-',
-    },
-    {
       title: 'Clicks',
-      dataIndex: 'clickCount',
-      key: 'clickCount',
+      dataIndex: 'clicks',
+      key: 'clicks',
       width: 80,
-      render: (count) => (
+      render: (clicks) => (
         <Statistic 
-          value={count || 0} 
-          valueStyle={{ fontSize: 14 }}
+          value={clicks || 0} 
+          valueStyle={{ fontSize: 16 }}
         />
       ),
     },
     {
-      title: 'Trạng thái',
-      dataIndex: 'isActive',
-      key: 'isActive',
-      width: 100,
-      render: (isActive) => (
-        <Tag color={isActive ? 'green' : 'red'}>
-          {isActive ? 'Hoạt động' : 'Tạm dừng'}
-        </Tag>
-      ),
+      title: 'Campaign',
+      dataIndex: 'campaign',
+      key: 'campaign',
+      width: 120,
+      render: (campaign) => 
+        campaign ? <Tag color="blue">{campaign}</Tag> : <Text type="secondary">-</Text>,
     },
     {
-      title: 'Ngày tạo',
+      title: 'Ngày Tạo',
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 120,
       render: (date) => dayjs(date).format('DD/MM/YYYY'),
     },
     {
-      title: 'Hành động',
+      title: 'Hành Động',
       key: 'actions',
-      width: 120,
+      width: 150,
       render: (_, record) => (
         <Space size="small">
-          <Tooltip title="Xem analytics">
+          <Tooltip title="Xem Analytics">
             <Link to={`/analytics?link=${record.id}`}>
               <Button 
-                type="link" 
+                type="text" 
                 icon={<BarChartOutlined />} 
                 size="small"
               />
             </Link>
           </Tooltip>
           
-          <Tooltip title="Chỉnh sửa">
-            <Button 
-              type="link" 
-              icon={<EditOutlined />} 
+          <Tooltip title="Sao Chép Link">
+            <Button
+              type="text"
+              icon={<CopyOutlined />}
               size="small"
-              onClick={() => message.info('Chức năng chỉnh sửa sẽ có trong phiên bản tiếp theo!')}
+              onClick={() => copyToClipboard(`${window.location.origin}/${record.shortCode}`)}
             />
           </Tooltip>
           
-          <Tooltip title="Xóa">
-            <Popconfirm
-              title="Bạn có chắc chắn muốn xóa liên kết này?"
-              description={`Liên kết "${record.shortCode}" sẽ bị xóa vĩnh viễn!`}
-              onConfirm={() => handleDelete(record.id, record.shortCode)}
-              okText="Xóa"
-              cancelText="Hủy"
-              okType="danger"
-            >
-              <Button 
-                type="link" 
-                icon={<DeleteOutlined />} 
+          <Popconfirm
+            title="Xóa liên kết này?"
+            description="Hành động này không thể hoàn tác."
+            onConfirm={() => handleDelete(record.id, record.shortCode)}
+            okText="Xóa"
+            cancelText="Hủy"
+            okType="danger"
+          >
+            <Tooltip title="Xóa">
+              <Button
+                type="text"
+                icon={<DeleteOutlined />}
                 size="small"
                 danger
               />
-            </Popconfirm>
-          </Tooltip>
+            </Tooltip>
+          </Popconfirm>
         </Space>
       ),
     },
   ];
 
-  const renderEmptyState = () => (
-    <Empty
-      image={Empty.PRESENTED_IMAGE_SIMPLE}
-      description={
-        <div>
-          <p>Chưa có liên kết nào</p>
-          <Text type="secondary">Tạo liên kết đầu tiên để bắt đầu rút gọn URL</Text>
-        </div>
-      }
-      style={{ padding: '60px 0' }}
-    >
-      <Space>
-        <Link to="/create">
-          <Button type="primary" icon={<PlusOutlined />}>
-            Tạo liên kết đầu tiên
-          </Button>
-        </Link>
-        <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
-          Tải lại
-        </Button>
-      </Space>
-    </Empty>
-  );
-
-  // Loading state
-  if (loading && safeLinks.length === 0) {
-    return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '50vh',
-        flexDirection: 'column',
-        gap: 16
-      }}>
-        <Spin size="large" />
-        <Text type="secondary">Đang tải dữ liệu dashboard...</Text>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-      <Space direction="vertical" size={24} style={{ width: '100%' }}>
+    <div style={{ padding: '0 0 24px 0' }}>
+      <Spin spinning={loading && !isInitialized}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          marginBottom: 24 
+        }}>
           <div>
             <Title level={2} style={{ margin: 0 }}>
               Dashboard
             </Title>
             <Text type="secondary">
-              Chào mừng trở lại, {user?.name || 'User'}! 
+              Xin chào {user?.name || 'User'}! 
               {safeStats.totalLinks > 0 && ` Bạn có ${safeStats.totalLinks} liên kết.`}
             </Text>
           </div>
@@ -389,83 +350,77 @@ const DashboardPage = () => {
         </Row>
 
         {/* Show alert if no data */}
-        {safeLinks.length === 0 && !loading && (
+        {safeLinks.length === 0 && !loading && isInitialized && (
           <Alert
             message="Chưa có dữ liệu"
             description="Bạn chưa tạo liên kết nào. Hãy tạo liên kết đầu tiên để bắt đầu!"
             type="info"
             showIcon
+            style={{ margin: '24px 0' }}
             action={
               <Link to="/create">
-                <Button size="small" type="primary">
-                  Tạo ngay
+                <Button type="primary" size="small">
+                  Tạo Liên Kết Ngay
                 </Button>
               </Link>
             }
           />
         )}
 
-        {/* Filters - Only show if there are links */}
+        {/* Links Table */}
         {safeLinks.length > 0 && (
-          <Card>
-            <Row gutter={[16, 16]} align="middle">
-              <Col xs={24} sm={12} md={8}>
+          <Card 
+            title="Quản Lý Liên Kết" 
+            style={{ marginTop: 24 }}
+            extra={
+              <Space>
                 <Search
                   placeholder="Tìm kiếm liên kết..."
-                  allowClear
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  prefix={<SearchOutlined />}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Select
-                  placeholder="Lọc theo chiến dịch"
+                  style={{ width: 200 }}
                   allowClear
-                  style={{ width: '100%' }}
-                  value={selectedCampaign}
-                  onChange={setSelectedCampaign}
-                >
-                  {campaigns.map(campaign => (
-                    <Option key={campaign} value={campaign}>
-                      {campaign}
-                    </Option>
-                  ))}
-                </Select>
-              </Col>
-              <Col xs={24} md={8}>
-                <div style={{ textAlign: 'right' }}>
-                  <Text type="secondary">
-                    Hiển thị {filteredLinks.length} / {safeLinks.length} liên kết
-                  </Text>
-                </div>
-              </Col>
-            </Row>
+                />
+                {campaigns.length > 0 && (
+                  <Select
+                    placeholder="Lọc theo campaign"
+                    value={selectedCampaign}
+                    onChange={setSelectedCampaign}
+                    style={{ width: 150 }}
+                    allowClear
+                  >
+                    {campaigns.map(campaign => (
+                      <Option key={campaign} value={campaign}>
+                        {campaign}
+                      </Option>
+                    ))}
+                  </Select>
+                )}
+              </Space>
+            }
+          >
+            <Table
+              columns={columns}
+              dataSource={filteredLinks}
+              rowKey="id"
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showQuickJumper: true,
+                showTotal: (total) => `Tổng ${total} liên kết`,
+              }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="Không tìm thấy liên kết nào"
+                  />
+                )
+              }}
+            />
           </Card>
         )}
-
-        {/* Links Table */}
-        <Card>
-          <Table
-            columns={columns}
-            dataSource={filteredLinks}
-            loading={loading}
-            rowKey="id"
-            locale={{
-              emptyText: renderEmptyState()
-            }}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showQuickJumper: true,
-              showTotal: (total, range) => 
-                `${range[0]}-${range[1]} của ${total} liên kết`,
-              hideOnSinglePage: filteredLinks.length <= 10
-            }}
-            scroll={{ x: 800 }}
-          />
-        </Card>
-      </Space>
+      </Spin>
     </div>
   );
 };
