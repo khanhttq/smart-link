@@ -261,79 +261,156 @@ class LinkService {
       let analytics = null;
 
       try {
+        if (clickTrackingService.isReady()) {
+        console.log(`🔍 Attempting to get analytics from ElasticSearch for link ${linkId}`);
         // Try to get analytics from ElasticSearch
         analytics = await clickTrackingService.getClickStats(
           linkId, 
           startDate.toISOString(), 
           endDate.toISOString()
         );
-
-        console.log(`📊 Analytics from ElasticSearch: ${analytics.totalClicks} clicks`);
-
+        if (!analytics || (analytics.totalClicks === 0 && analytics.uniqueClicks === 0)) {
+          console.warn('⚠️ ElasticSearch returned empty analytics, trying PostgreSQL fallback');
+          throw new Error('Empty ElasticSearch response');
+        }
+        } else {
+        console.warn('⚠️ ElasticSearch service not ready, using PostgreSQL fallback');
+        throw new Error('ElasticSearch service not ready');
+      }
       } catch (esError) {
         console.warn('⚠️ ElasticSearch analytics failed, falling back to PostgreSQL:', esError.message);
         
         // Fallback to PostgreSQL analytics
         analytics = await this.getPostgreSQLAnalytics(linkId, startDate, endDate);
+        analytics.dataSource = 'postgresql';
+        analytics.fallback = true;
       }
-
+      // ✅ FIXED: Ensure analytics has required structure
+    const safeAnalytics = {
+      totalClicks: analytics.totalClicks || 0,
+      uniqueClicks: analytics.uniqueClicks || 0,  
+      dailyClicks: analytics.dailyClicks || [],
+      topCountries: analytics.topCountries || [],
+      topDevices: analytics.topDevices || [],
+      topBrowsers: analytics.topBrowsers || [],
+      dataSource: analytics.dataSource || 'elasticsearch',
+      fallback: analytics.fallback || false
+    };
       // Combine with link metadata
       return {
-        link: {
-          id: link.id,
-          title: link.title,
-          shortCode: link.shortCode,
-          originalUrl: link.originalUrl,
-          domain: link.domain?.domain || 'system',
-          createdAt: link.createdAt,
-          campaign: link.campaign
-        },
-        dateRange: {
-          start: startDate,
-          end: endDate,
-          period: dateRange
-        },
-        ...analytics
-      };
+      link: {
+        id: link.id,
+        title: link.title,
+        shortCode: link.shortCode,
+        originalUrl: link.originalUrl,
+        domain: link.domain?.domain || 'system',
+        createdAt: link.createdAt,
+        clickCount: link.clickCount || 0,
+        isActive: link.isActive
+      },
+      totals: {
+        clicks: safeAnalytics.totalClicks,
+        uniqueClicks: safeAnalytics.uniqueClicks,
+        clickThroughRate: safeAnalytics.totalClicks > 0 ? 
+          ((safeAnalytics.uniqueClicks / safeAnalytics.totalClicks) * 100).toFixed(2) : '0.00'
+      },
+      breakdown: {
+        daily: safeAnalytics.dailyClicks,
+        countries: safeAnalytics.topCountries,
+        devices: safeAnalytics.topDevices,
+        browsers: safeAnalytics.topBrowsers
+      },
+      period: {
+        range: dateRange,
+        start: startDate.toISOString(),
+        end: endDate.toISOString()
+      },
+      meta: {
+        dataSource: safeAnalytics.dataSource,
+        fallback: safeAnalytics.fallback,
+        generatedAt: new Date().toISOString()
+      },
+      // ✅ FIXED: Add backward compatibility fields
+      dailyClicks: safeAnalytics.dailyClicks,
+      topCountries: safeAnalytics.topCountries,
+      topDevices: safeAnalytics.topDevices,
+      topBrowsers: safeAnalytics.topBrowsers
+    };
 
     } catch (error) {
       console.error('❌ Get analytics error:', error);
-      throw error;
+      // ✅ FIXED: Return safe default structure on complete failure
+      return {
+        link: null,
+        totals: {
+          clicks: 0,
+          uniqueClicks: 0,
+          clickThroughRate: '0.00'
+        },
+        breakdown: {
+          daily: [],
+          countries: [],
+          devices: [],
+          browsers: []
+        },
+        period: {
+          range: dateRange,
+          start: new Date().toISOString(),
+          end: new Date().toISOString()
+        },
+        meta: {
+          dataSource: 'none',
+          fallback: true,
+          error: error.message,
+          generatedAt: new Date().toISOString()
+        },
+        // Backward compatibility
+        dailyClicks: [],
+        topCountries: [],
+        topDevices: [],
+        topBrowsers: [],
+        totalClicks: 0,
+        uniqueClicks: 0
+      };
     }
   }
-
   /**
    * Fallback PostgreSQL analytics
    */
-  async getPostgreSQLAnalytics(linkId, startDate, endDate) {
+    async getPostgreSQLAnalytics(linkId, startDate, endDate) {
     try {
+      console.log(`🔄 Getting PostgreSQL analytics for link ${linkId}`);
+
+      // ✅ FIXED: Use 'timestamp' instead of 'createdAt' (Click model uses timestamps: false)
       const whereClause = {
         linkId,
-        timestamp: {
+        timestamp: {  // ✅ CHANGED from 'createdAt' to 'timestamp'
           [Op.between]: [startDate, endDate]
         }
       };
 
-      // Basic stats
-      const totalClicks = await Click.count({ where: whereClause });
-      const uniqueClicks = await Click.count({ 
-        where: whereClause,
-        distinct: true,
-        col: 'ipAddress'
-      });
+      // Get total and unique clicks
+      const [totalClicks, uniqueClicks] = await Promise.all([
+        Click.count({ where: whereClause }),
+        Click.count({ 
+          where: whereClause,
+          distinct: true,
+          col: 'ipAddress'
+        })
+      ]);
 
-      // Daily breakdown
+      // ✅ FIXED: Get daily clicks with proper date formatting
       const dailyClicks = await Click.findAll({
         where: whereClause,
         attributes: [
-          [sequelize.fn('DATE', sequelize.col('timestamp')), 'date'],
+          [sequelize.fn('DATE', sequelize.col('timestamp')), 'date'],  // ✅ CHANGED
           [sequelize.fn('COUNT', sequelize.col('id')), 'clicks']
         ],
-        group: [sequelize.fn('DATE', sequelize.col('timestamp'))],
-        order: [[sequelize.fn('DATE', sequelize.col('timestamp')), 'ASC']]
+        group: [sequelize.fn('DATE', sequelize.col('timestamp'))],  // ✅ CHANGED
+        order: [[sequelize.fn('DATE', sequelize.col('timestamp')), 'ASC']]  // ✅ CHANGED
       });
 
-      // Top countries
+      // Get top countries
       const topCountries = await Click.findAll({
         where: whereClause,
         attributes: [
@@ -345,7 +422,7 @@ class LinkService {
         limit: 10
       });
 
-      // Top devices
+      // Get top devices
       const topDevices = await Click.findAll({
         where: whereClause,
         attributes: [
@@ -354,10 +431,10 @@ class LinkService {
         ],
         group: ['deviceType'],
         order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
-        limit: 10
+        limit: 5
       });
 
-      // Top browsers
+      // Get top browsers
       const topBrowsers = await Click.findAll({
         where: whereClause,
         attributes: [
@@ -369,26 +446,29 @@ class LinkService {
         limit: 10
       });
 
-      return {
-        totalClicks,
-        uniqueClicks,
+      const result = {
+        totalClicks: parseInt(totalClicks) || 0,
+        uniqueClicks: parseInt(uniqueClicks) || 0,
         dailyClicks: dailyClicks.map(item => ({
           date: item.dataValues.date,
-          clicks: parseInt(item.dataValues.clicks)
+          clicks: parseInt(item.dataValues.clicks) || 0
         })),
         topCountries: topCountries.map(item => ({
           country: item.dataValues.country || 'Unknown',
-          clicks: parseInt(item.dataValues.clicks)
+          clicks: parseInt(item.dataValues.clicks) || 0
         })),
         topDevices: topDevices.map(item => ({
           device: item.dataValues.deviceType || 'Unknown',
-          clicks: parseInt(item.dataValues.clicks)
+          clicks: parseInt(item.dataValues.clicks) || 0
         })),
         topBrowsers: topBrowsers.map(item => ({
           browser: item.dataValues.browser || 'Unknown',
-          clicks: parseInt(item.dataValues.clicks)
+          clicks: parseInt(item.dataValues.clicks) || 0
         }))
       };
+
+      console.log(`✅ PostgreSQL analytics: ${result.totalClicks} total clicks, ${result.uniqueClicks} unique`);
+      return result;
 
     } catch (error) {
       console.error('❌ PostgreSQL analytics error:', error);
@@ -402,7 +482,6 @@ class LinkService {
       };
     }
   }
-
   /**
    * Get user stats with ElasticSearch integration
    */
