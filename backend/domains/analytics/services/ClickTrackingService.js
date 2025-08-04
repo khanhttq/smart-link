@@ -12,54 +12,54 @@ class ClickTrackingService {
   }
 
   // Track single click
-  async trackClick(clickData) {
-    try {
-      const document = {
-        ...clickData,
+async trackClick(clickData) {
+  try {
+    const document = {
+      ...clickData,
+      timestamp: new Date(),
+      '@timestamp': new Date().toISOString(),
+      date: moment().format('YYYY-MM-DD'),
+      hour: moment().startOf('hour').toISOString()
+    };
+
+    const response = await this.esClient.index({
+      index: 'clicks',
+      body: document
+    });
+
+    console.log(`📊 Click tracked: ${clickData.shortCode}`);
+    return response._id; // ✅ SỬA: bỏ .body
+  } catch (error) {
+    console.error('❌ Click tracking error:', error.message);
+    return null;
+  }
+}
+
+// Track multiple clicks (batch)
+async trackClicksBatch(clicksArray) {
+  try {
+    const body = [];
+    
+    for (const click of clicksArray) {
+      body.push({ index: { _index: 'clicks' } });
+      body.push({
+        ...click,
         timestamp: new Date(),
         '@timestamp': new Date().toISOString(),
         date: moment().format('YYYY-MM-DD'),
-        hour: moment().format('YYYY-MM-DD HH:00:00')
-      };
-
-      const response = await this.esClient.index({
-        index: 'clicks',
-        body: document
+        hour: moment().startOf('hour').toISOString()
       });
-
-      console.log(`📊 Click tracked: ${clickData.shortCode}`);
-      return response.body._id;
-    } catch (error) {
-      console.error('❌ Click tracking error:', error.message);
-      return null;
     }
-  }
 
-  // Track multiple clicks (batch)
-  async trackClicksBatch(clicksArray) {
-    try {
-      const body = [];
-      
-      for (const click of clicksArray) {
-        body.push({ index: { _index: 'clicks' } });
-        body.push({
-          ...click,
-          timestamp: new Date(),
-          '@timestamp': new Date().toISOString(),
-          date: moment().format('YYYY-MM-DD'),
-          hour: moment().format('YYYY-MM-DD HH:00:00')
-        });
-      }
-
-      const response = await this.esClient.bulk({ body });
-      
-      console.log(`📊 Batch tracked: ${clicksArray.length} clicks`);
-      return response.body.items.length;
-    } catch (error) {
-      console.error('❌ Batch click tracking error:', error.message);
-      return 0;
-    }
+    const response = await this.esClient.bulk({ body });
+    
+    console.log(`📊 Batch tracked: ${clicksArray.length} clicks`);
+    return response.items?.length || 0; // ✅ SỬA: bỏ .body
+  } catch (error) {
+    console.error('❌ Batch click tracking error:', error.message);
+    return 0;
   }
+}
 
   // Get click statistics
   async getClickStats(userId, timeRange = '7d') {

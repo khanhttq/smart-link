@@ -91,7 +91,7 @@ class LinkService {
         geoRestrictions,
         isActive: true,
         clickCount: 0,
-        uniqueClickCount: 0
+        uniqueClicks: 0
       });
 
       // Fetch with associations
@@ -111,7 +111,7 @@ class LinkService {
     }
   }
 
-  /**
+   /**
    * Process click and track in both PostgreSQL and ElasticSearch
    */
   async processClick(shortCode, customDomain = null, clickData, userLocation = null) {
@@ -146,8 +146,8 @@ class LinkService {
         }
       }
 
-      // Check geo restrictions
-      if (!link.isAccessibleFromLocation(userLocation)) {
+      // ✅ SỬA LỖI: Đổi từ isAccessibleFromLocation thành canAccess
+      if (!link.canAccess(userLocation)) {
         throw new Error('Access denied from this location');
       }
 
@@ -177,7 +177,10 @@ class LinkService {
           await queueService.queueClickTracking(link.id, {
             ...clickData,
             linkId: link.id,
+            userId: link.userId, // ✅ THÊM userId
             shortCode: link.shortCode,
+            originalUrl: link.originalUrl, // ✅ THÊM originalUrl
+            campaign: link.campaign, // ✅ THÊM campaign
             domain: link.domain?.domain || 'system',
             ...userLocation
           });
@@ -185,7 +188,10 @@ class LinkService {
           // Direct tracking if queue not available
           await clickTrackingService.trackClick({
             linkId: link.id,
+            userId: link.userId, // ✅ THÊM userId
             shortCode: link.shortCode,
+            originalUrl: link.originalUrl, // ✅ THÊM originalUrl
+            campaign: link.campaign, // ✅ THÊM campaign
             domain: link.domain?.domain || 'system',
             ...clickData,
             ...userLocation
@@ -220,7 +226,7 @@ class LinkService {
     };
 
     if (isUnique) {
-      updateData.uniqueClickCount = (link.uniqueClickCount || 0) + 1;
+      updateData.uniqueClicks = (link.uniqueClicks || 0) + 1;
     }
 
     await link.update(updateData);
@@ -400,7 +406,7 @@ class LinkService {
   /**
    * Get user stats with ElasticSearch integration
    */
-  async getUserStats(userId) {
+    async getUserStats(userId) {
     try {
       await this.ensureInitialized();
 
@@ -413,11 +419,18 @@ class LinkService {
         where: { userId, isActive: true }
       }) || 0;
 
-      const totalUniqueClicks = await Link.sum('uniqueClickCount', {
+      const totalUniqueClicks = await Link.sum('uniqueClicks', {
         where: { userId, isActive: true }
       }) || 0;
 
-      // Get recent links
+      // ✅ THÊM 2 DÒNG NÀY:
+      const activeLinks = await Link.count({
+        where: { userId, isActive: true }
+      });
+
+      const avgClicks = totalLinks > 0 ? (totalClicks / totalLinks) : 0;
+
+      // Get recent links...
       const recentLinks = await Link.findAll({
         where: { userId, isActive: true },
         include: [{
@@ -428,7 +441,7 @@ class LinkService {
         limit: 5
       });
 
-      // Try to get enhanced analytics from ElasticSearch
+      // Try to get enhanced analytics...
       let enhancedAnalytics = null;
       try {
         if (clickTrackingService.isInitialized) {
@@ -442,7 +455,10 @@ class LinkService {
         totalLinks,
         totalClicks,
         totalUniqueClicks,
-        clickThroughRate: totalLinks > 0 ? (totalClicks / totalLinks).toFixed(2) : 0,
+        activeLinks,        // ✅ THÊM
+        avgClicks: parseFloat(avgClicks.toFixed(1)), // ✅ THÊM
+        clickThroughRate: totalLinks > 0 ? 
+          (totalClicks / totalLinks).toFixed(2) : 0,
         recentLinks: recentLinks.map(link => ({
           id: link.id,
           shortCode: link.shortCode,
@@ -452,7 +468,7 @@ class LinkService {
           domain: link.domain?.domain || 'system',
           createdAt: link.createdAt
         })),
-        enhancedAnalytics // May be null if ElasticSearch unavailable
+        enhancedAnalytics
       };
 
     } catch (error) {
@@ -659,6 +675,7 @@ class LinkService {
 
     return { startDate: startDate.toDate(), endDate: endDate.toDate() };
   }
+
 }
 
 module.exports = new LinkService();

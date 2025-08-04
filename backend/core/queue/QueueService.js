@@ -1,4 +1,4 @@
-// core/queue/QueueService.js
+// backend/core/queue/QueueService.js - HOÀN TẤT PHIÊN BẢN
 const clickTrackingService = require('../../domains/analytics/services/ClickTrackingService');
 
 class QueueService {
@@ -11,22 +11,30 @@ class QueueService {
     this.processing = false;
     this.batchSize = 10;
     this.processInterval = 5000; // 5 seconds
+    this.isInitialized = false; // ✅ THÊM THUỘC TÍNH NÀY
   }
 
   async initialize() {
     console.log('📋 Queue Service initializing...');
     
-    // Initialize click tracking service
-    await clickTrackingService.initialize();
-    
-    // Start processing queues
-    this.startProcessing();
-    
-    console.log('✅ Queue Service initialized');
+    try {
+      // Initialize click tracking service
+      await clickTrackingService.initialize();
+      
+      // Start processing queues
+      this.startProcessing();
+      
+      this.isInitialized = true; // ✅ ĐẶT TRẠNG THÁI INITIALIZED
+      console.log('✅ Queue Service initialized');
+    } catch (error) {
+      console.error('❌ Queue Service initialization failed:', error);
+      this.isInitialized = false;
+      throw error;
+    }
   }
 
-  // Add click tracking job to queue
-  addClickTracking(linkId, clickData) {
+  // ✅ THÊM METHOD QUEUECLICKTRACKING
+  async queueClickTracking(linkId, clickData) {
     const job = {
       id: `click_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       linkId,
@@ -44,6 +52,11 @@ class QueueService {
     console.log(`📊 Click tracking queued: ${linkId} (Queue size: ${this.queues.clickTracking.length})`);
     
     return job.id;
+  }
+
+  // Add click tracking job to queue (alias method)
+  addClickTracking(linkId, clickData) {
+    return this.queueClickTracking(linkId, clickData);
   }
 
   // Add email notification job
@@ -137,18 +150,17 @@ class QueueService {
     try {
       // Batch insert to ElasticSearch
       const result = await clickTrackingService.trackClicksBatch(clickData);
-      console.log(`✅ Successfully tracked ${result} clicks`);
+      console.log(`✅ Successfully tracked ${result} clicks in ElasticSearch`);
     } catch (error) {
-      console.error('❌ Click tracking batch error:', error.message);
+      console.error('❌ ElasticSearch batch tracking failed:', error.message);
       
-      // Re-queue failed jobs (with retry logic)
+      // Retry logic - put failed jobs back in queue with increased attempts
       batch.forEach(job => {
         job.attempts++;
         if (job.attempts < job.maxAttempts) {
           this.queues.clickTracking.push(job);
-          console.log(`🔄 Re-queued click tracking job ${job.id} (attempt ${job.attempts})`);
         } else {
-          console.error(`❌ Max attempts reached for click tracking job ${job.id}`);
+          console.error(`❌ Job ${job.id} exceeded max attempts, dropping`);
         }
       });
     }
@@ -159,17 +171,18 @@ class QueueService {
     const queue = this.queues.emailNotifications;
     if (queue.length === 0) return;
 
-    const jobs = queue.splice(0, 5); // Process 5 emails at a time
-    console.log(`📧 Processing ${jobs.length} email jobs...`);
+    const batch = queue.splice(0, Math.min(5, queue.length)); // Smaller batch for emails
+    console.log(`📧 Processing ${batch.length} email jobs...`);
 
-    for (const job of jobs) {
+    for (const job of batch) {
       try {
-        // TODO: Implement email service
-        console.log(`📧 Email sent to ${job.emailData.to}: ${job.emailData.subject}`);
+        // TODO: Implement actual email sending
+        console.log(`📧 Sending email to: ${job.emailData.to}`);
+        // await emailService.sendEmail(job.emailData);
+        console.log(`✅ Email sent: ${job.id}`);
       } catch (error) {
-        console.error(`❌ Email job ${job.id} failed:`, error.message);
+        console.error(`❌ Email sending failed: ${job.id}`, error.message);
         
-        // Re-queue with retry logic
         job.attempts++;
         if (job.attempts < job.maxAttempts) {
           this.queues.emailNotifications.push(job);
@@ -183,17 +196,17 @@ class QueueService {
     const queue = this.queues.analytics;
     if (queue.length === 0) return;
 
-    const jobs = queue.splice(0, 10);
-    console.log(`📈 Processing ${jobs.length} analytics jobs...`);
+    const batch = queue.splice(0, this.batchSize);
+    console.log(`📈 Processing ${batch.length} analytics jobs...`);
 
-    for (const job of jobs) {
+    for (const job of batch) {
       try {
-        // TODO: Implement analytics aggregation
-        console.log(`📈 Analytics processed: ${job.type} for user ${job.userId}`);
+        // TODO: Implement analytics processing
+        console.log(`📈 Processing analytics: ${job.type} for user ${job.userId}`);
+        console.log(`✅ Analytics processed: ${job.id}`);
       } catch (error) {
-        console.error(`❌ Analytics job ${job.id} failed:`, error.message);
+        console.error(`❌ Analytics processing failed: ${job.id}`, error.message);
         
-        // Re-queue with retry logic
         job.attempts++;
         if (job.attempts < job.maxAttempts) {
           this.queues.analytics.push(job);
@@ -261,7 +274,8 @@ class QueueService {
         pending: this.queues.analytics.length
       },
       batchSize: this.batchSize,
-      processInterval: this.processInterval
+      processInterval: this.processInterval,
+      isInitialized: this.isInitialized
     };
   }
 
@@ -271,6 +285,15 @@ class QueueService {
     this.queues.emailNotifications = [];
     this.queues.analytics = [];
     console.log('🧹 All queues cleared');
+  }
+
+  // Get initialization status
+  get isInitialized() {
+    return this._isInitialized;
+  }
+
+  set isInitialized(value) {
+    this._isInitialized = value;
   }
 }
 
