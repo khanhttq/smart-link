@@ -132,20 +132,22 @@ class ClickTrackingService {
   /**
    * Get click statistics for a specific link - FIXED VERSION
    */
+  /**
+ * Get analytics stats for specific link
+ */
   async getClickStats(linkId, startDate, endDate) {
     try {
-      if (!this.isInitialized) {
-        console.warn('⚠️ ClickTrackingService not initialized, returning default stats');
-        return this.createDefaultAnalytics();
+      if (!this.isInitialized || !this.esClient) {
+        console.warn('⚠️ ClickTrackingService not initialized');
+        // Throw error để kích hoạt PostgreSQL fallback
+        throw new Error('ElasticSearch service not initialized');
       }
-
-      console.log(`🔍 Getting click stats for link ${linkId} from ${startDate} to ${endDate}`);
 
       const searchBody = {
         query: {
           bool: {
             must: [
-              { term: { linkId: linkId } },
+              { term: { linkId } },
               {
                 range: {
                   timestamp: {
@@ -158,11 +160,11 @@ class ClickTrackingService {
           }
         },
         aggs: {
-          total_clicks: { 
-            value_count: { field: 'timestamp' } 
+          total_clicks: {
+            value_count: { field: 'timestamp' }
           },
-          unique_clicks: { 
-            cardinality: { field: 'ipAddress' } 
+          unique_clicks: {
+            cardinality: { field: 'ipAddress' }
           },
           daily_clicks: {
             date_histogram: {
@@ -198,23 +200,44 @@ class ClickTrackingService {
 
       console.log('🔍 ElasticSearch query:', JSON.stringify(searchBody, null, 2));
 
-      const response = await this.esClient.search({
-        index: 'clicks',
-        body: searchBody
-      });
-
-      console.log('📊 ElasticSearch response status:', response.statusCode);
-
-      // ✅ FIXED: Safe aggregation extraction
-      const aggs = this.safeExtractAggregations(response);
-      
-      // ✅ FIXED: Check if aggregations exist and extract safely
-      if (!aggs || Object.keys(aggs).length === 0) {
-        console.warn('⚠️ No aggregations found in ElasticSearch response');
+      let response;
+      try {
+        response = await this.esClient.search({
+          index: 'clicks',
+          body: searchBody
+        });
+      } catch (searchError) {
+        console.error('❌ ElasticSearch search error:', searchError);
+        
+        // ✅ PHÂN BIỆT LOẠI ERROR:
+        // ConnectionError/ResponseError = ES offline → Throw để fallback PostgreSQL
+        if (searchError.name === 'ConnectionError' || 
+            searchError.name === 'ResponseError' ||
+            searchError.message.includes('Connection') ||
+            searchError.message.includes('ECONNREFUSED') ||
+            searchError.meta?.statusCode === 0) {
+          
+          console.warn('⚠️ ElasticSearch connection failed, triggering PostgreSQL fallback');
+          throw new Error(`ElasticSearch connection error: ${searchError.message}`);
+        }
+        
+        // Other errors (invalid query, etc.) = Return empty data
+        console.warn('⚠️ ElasticSearch query error, returning empty results');
         return this.createDefaultAnalytics();
       }
 
-      // ✅ FIXED: Safe extraction with null checks
+      console.log('📊 ElasticSearch response status:', response.statusCode);
+
+      // ✅ SAFE AGGREGATION EXTRACTION
+      const aggs = this.safeExtractAggregations(response);
+      
+      // Check if aggregations exist - if not, it's empty data (not error)
+      if (!aggs || Object.keys(aggs).length === 0) {
+        console.log('ℹ️ No aggregations found - link has no clicks yet');
+        return this.createDefaultAnalytics();
+      }
+
+      // ✅ EXTRACT DATA SAFELY
       const result = {
         totalClicks: aggs.total_clicks?.value || 0,
         uniqueClicks: aggs.unique_clicks?.value || 0,
@@ -243,14 +266,16 @@ class ClickTrackingService {
       console.error('❌ Click stats error:', error);
       console.error('Error details:', {
         message: error.message,
+        name: error.name,
         stack: error.stack,
         linkId,
         startDate,
         endDate
       });
       
-      // Return default analytics on error
-      return this.createDefaultAnalytics();
+      // ✅ THROW ERROR INSTEAD OF RETURNING DEFAULT
+      // Điều này sẽ trigger PostgreSQL fallback ở LinkService
+      throw error;
     }
   }
 
@@ -488,9 +513,41 @@ class ClickTrackingService {
    * Check if service is ready
    */
   isReady() {
-    return this.isInitialized && this.esClient !== null;
+    // Check both initialization and actual ES connection
+    if (!this.isInitialized || !this.esClient) {
+      return false;
+    }
+    
+    // Check if using real ES connection (not mock)
+    if (this.esClient.ping) {
+      return true;
+    }
+    
+    // If it's a mock client, consider it not ready
+    return false;
   }
-
+// ===== THÊM METHOD PING TEST =====
+/**
+ * Test ES connection với timeout ngắn
+ */
+  async testConnection() {
+    if (!this.isReady()) {
+      return { connected: false, error: 'Service not initialized' };
+    }
+    
+    try {
+      await Promise.race([
+        this.esClient.ping(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Ping timeout')), 2000)
+        )
+      ]);
+      
+      return { connected: true };
+    } catch (error) {
+      return { connected: false, error: error.message };
+    }
+  }
   /**
    * Health check
    */

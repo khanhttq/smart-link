@@ -1,9 +1,11 @@
-// server.js
+// SỬA FILE: backend/server.js
+// Proper handling khi ES fail
+
 const app = require('./app');
 const { sequelize } = require('./models');
 const cacheService = require('./core/cache/CacheService');
-const esConnection = require('./config/elasticsearch'); // ADDED
-const linkService = require('./domains/links/services/LinkService'); // ADDED
+const esConnection = require('./config/elasticsearch');
+const linkService = require('./domains/links/services/LinkService');
 
 const PORT = process.env.PORT || 4000;
 
@@ -27,16 +29,32 @@ async function startServer() {
     await cacheService.initialize();
     console.log('✅ Redis connected');
 
-    // 4. Connect to ElasticSearch - ADDED
+    // 4. Connect to ElasticSearch - IMPROVED HANDLING
     console.log('🔍 Connecting to ElasticSearch...');
+    let esStatus = 'disconnected';
+    
     try {
       await esConnection.connect();
-      console.log('✅ ElasticSearch connected');
+      if (esConnection.isReady()) {
+        console.log('✅ ElasticSearch connected');
+        esStatus = 'connected';
+      } else {
+        console.warn('⚠️ ElasticSearch connection returned but not ready');
+        esStatus = 'disconnected';
+      }
     } catch (error) {
-      console.warn('⚠️ ElasticSearch connection failed, using mock client');
+      console.warn('⚠️ ElasticSearch connection failed:', error.message);
+      console.warn('ℹ️ Application will continue with PostgreSQL fallback for analytics');
+      esStatus = 'disconnected';
+      
+      // Trong production có thể muốn fail hard
+      if (process.env.NODE_ENV === 'production' && process.env.REQUIRE_ELASTICSEARCH === 'true') {
+        console.error('💥 ElasticSearch required in production but connection failed');
+        process.exit(1);
+      }
     }
 
-    // 5. Initialize LinkService (which initializes QueueService) - ADDED
+    // 5. Initialize LinkService (which initializes QueueService)
     console.log('🔗 Initializing services...');
     await linkService.initialize();
     console.log('✅ Services initialized');
@@ -54,56 +72,63 @@ async function startServer() {
       
       // Log service status
       console.log('📋 Service Status:');
-      console.log(`  🗄️  PostgreSQL: Connected`);
-      console.log(`  🔄 Redis: Connected`);
-      console.log(`  🔍 ElasticSearch: ${esConnection.isReady() ? 'Connected' : 'Mock Mode'}`);
-      console.log(`  📋 Queue Service: Running`);
-      console.log(`  🔗 Link Service: Ready`);
+      console.log(`  🗄️  PostgreSQL: ✅ Connected`);
+      console.log(`  🔄 Redis: ✅ Connected`);
+      
+      if (esStatus === 'connected') {
+        console.log(`  🔍 ElasticSearch: ✅ Connected`);
+      } else {
+        console.log(`  🔍 ElasticSearch: ⚠️ Disconnected (Using PostgreSQL fallback)`);
+      }
+      
       console.log('');
+      
+      // Show fallback status if needed
+      if (esStatus === 'disconnected') {
+        console.log('📝 Notes:');
+        console.log('  • Analytics will use PostgreSQL fallback');
+        console.log('  • Real-time analytics features may be limited');
+        console.log('  • To enable ElasticSearch: start ES server and restart app');
+        console.log('');
+      }
     });
 
-    // Handle graceful shutdown
-    process.on('SIGTERM', () => {
-      console.log('🛑 SIGTERM received, shutting down gracefully...');
-      server.close(() => {
-        console.log('✅ Server closed');
+    // Graceful shutdown
+    const gracefulShutdown = async (signal) => {
+      console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
+      
+      server.close(async () => {
+        console.log('📝 HTTP server closed');
+        
+        try {
+          await sequelize.close();
+          console.log('📊 PostgreSQL connection closed');
+        } catch (error) {
+          console.error('❌ Error closing PostgreSQL:', error.message);
+        }
+        
+        try {
+          await cacheService.disconnect();
+          console.log('🔄 Redis connection closed');
+        } catch (error) {
+          console.error('❌ Error closing Redis:', error.message);
+        }
+        
+        console.log('✅ Graceful shutdown complete');
         process.exit(0);
       });
-    });
+    };
 
-    process.on('SIGINT', () => {
-      console.log('🛑 SIGINT received, shutting down gracefully...');
-      server.close(() => {
-        console.log('✅ Server closed');
-        process.exit(0);
-      });
-    });
-
-    return server;
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
   } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
-    console.error('Stack:', error.stack);
+    console.error('💥 Failed to start server:', error);
     process.exit(1);
   }
 }
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
+// Add environment variable to .env.example:
+// REQUIRE_ELASTICSEARCH=false  # Set to true in production if ES is mandatory
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error.message);
-  console.error('Stack:', error.stack);
-  process.exit(1);
-});
-
-// Start the server
-if (require.main === module) {
-  startServer();
-}
-
-module.exports = { startServer };
+startServer();

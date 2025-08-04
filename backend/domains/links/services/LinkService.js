@@ -235,6 +235,9 @@ class LinkService {
   /**
    * Get link analytics from ElasticSearch (with PostgreSQL fallback)
    */
+  /**
+ * Get link analytics from ElasticSearch (with PostgreSQL fallback)
+ */
   async getLinkAnalytics(linkId, userId, dateRange = '30d') {
     try {
       await this.ensureInitialized();
@@ -259,228 +262,195 @@ class LinkService {
       const { startDate, endDate } = this.getDateRange(dateRange);
 
       let analytics = null;
+      let usingFallback = false;
+      let fallbackReason = null;
 
+      // ✅ TRY ELASTICSEARCH FIRST
       try {
-        if (clickTrackingService.isReady()) {
-        console.log(`🔍 Attempting to get analytics from ElasticSearch for link ${linkId}`);
+        // Check if ClickTrackingService is ready first
+        if (!clickTrackingService.isReady()) {
+          console.warn('⚠️ ClickTrackingService not ready, using PostgreSQL fallback');
+          throw new Error('ClickTrackingService not ready');
+        }
+
+        // Test connection before actual query
+        const connectionTest = await clickTrackingService.testConnection();
+        if (!connectionTest.connected) {
+          console.warn('⚠️ ElasticSearch connection test failed:', connectionTest.error);
+          throw new Error(`ElasticSearch connection failed: ${connectionTest.error}`);
+        }
+
+        console.log(`🔍 Attempting ElasticSearch analytics for link ${linkId}`);
+        
         // Try to get analytics from ElasticSearch
         analytics = await clickTrackingService.getClickStats(
           linkId, 
           startDate.toISOString(), 
           endDate.toISOString()
         );
-        if (!analytics || (analytics.totalClicks === 0 && analytics.uniqueClicks === 0)) {
-          console.warn('⚠️ ElasticSearch returned empty analytics, trying PostgreSQL fallback');
-          throw new Error('Empty ElasticSearch response');
-        }
-        } else {
-        console.warn('⚠️ ElasticSearch service not ready, using PostgreSQL fallback');
-        throw new Error('ElasticSearch service not ready');
-      }
+
+        // ✅ SUCCESS - ES returned data (even if empty)
+        analytics.dataSource = 'elasticsearch';
+        analytics.fallback = false;
+        
+        console.log(`✅ ElasticSearch analytics successful for link ${linkId}: ${analytics.totalClicks || 0} clicks`);
+        
       } catch (esError) {
         console.warn('⚠️ ElasticSearch analytics failed, falling back to PostgreSQL:', esError.message);
         
-        // Fallback to PostgreSQL analytics
+        // ✅ FALLBACK TO POSTGRESQL
+        usingFallback = true;
+        fallbackReason = esError.message;
+        
         analytics = await this.getPostgreSQLAnalytics(linkId, startDate, endDate);
         analytics.dataSource = 'postgresql';
         analytics.fallback = true;
+        analytics.fallbackReason = fallbackReason;
+        
+        console.log(`✅ PostgreSQL fallback successful for link ${linkId}: ${analytics.totalClicks || 0} clicks`);
       }
-      // ✅ FIXED: Ensure analytics has required structure
-    const safeAnalytics = {
-      totalClicks: analytics.totalClicks || 0,
-      uniqueClicks: analytics.uniqueClicks || 0,  
-      dailyClicks: analytics.dailyClicks || [],
-      topCountries: analytics.topCountries || [],
-      topDevices: analytics.topDevices || [],
-      topBrowsers: analytics.topBrowsers || [],
-      dataSource: analytics.dataSource || 'elasticsearch',
-      fallback: analytics.fallback || false
-    };
-      // Combine with link metadata
-      return {
-      link: {
-        id: link.id,
-        title: link.title,
-        shortCode: link.shortCode,
-        originalUrl: link.originalUrl,
-        domain: link.domain?.domain || 'system',
-        createdAt: link.createdAt,
-        clickCount: link.clickCount || 0,
-        isActive: link.isActive
-      },
-      totals: {
-        clicks: safeAnalytics.totalClicks,
-        uniqueClicks: safeAnalytics.uniqueClicks,
-        clickThroughRate: safeAnalytics.totalClicks > 0 ? 
-          ((safeAnalytics.uniqueClicks / safeAnalytics.totalClicks) * 100).toFixed(2) : '0.00'
-      },
-      breakdown: {
-        daily: safeAnalytics.dailyClicks,
-        countries: safeAnalytics.topCountries,
-        devices: safeAnalytics.topDevices,
-        browsers: safeAnalytics.topBrowsers
-      },
-      period: {
-        range: dateRange,
-        start: startDate.toISOString(),
-        end: endDate.toISOString()
-      },
-      meta: {
-        dataSource: safeAnalytics.dataSource,
-        fallback: safeAnalytics.fallback,
-        generatedAt: new Date().toISOString()
-      },
-      // ✅ FIXED: Add backward compatibility fields
-      dailyClicks: safeAnalytics.dailyClicks,
-      topCountries: safeAnalytics.topCountries,
-      topDevices: safeAnalytics.topDevices,
-      topBrowsers: safeAnalytics.topBrowsers
-    };
 
-    } catch (error) {
-      console.error('❌ Get analytics error:', error);
-      // ✅ FIXED: Return safe default structure on complete failure
-      return {
-        link: null,
+      // ✅ ENSURE ANALYTICS HAS REQUIRED STRUCTURE
+      const safeAnalytics = {
+        totalClicks: analytics.totalClicks || 0,
+        uniqueClicks: analytics.uniqueClicks || 0,  
+        dailyClicks: analytics.dailyClicks || [],
+        topCountries: analytics.topCountries || [],
+        topDevices: analytics.topDevices || [],
+        topBrowsers: analytics.topBrowsers || [],
+        dataSource: analytics.dataSource || 'postgresql',
+        fallback: analytics.fallback || false,
+        fallbackReason: analytics.fallbackReason || null
+      };
+
+      // Combine with link metadata
+      const result = {
+        link: {
+          id: link.id,
+          title: link.title,
+          shortCode: link.shortCode,
+          originalUrl: link.originalUrl,
+          domain: link.domain?.domain || 'system',
+          createdAt: link.createdAt,
+          clickCount: link.clickCount || 0,
+          isActive: link.isActive
+        },
         totals: {
-          clicks: 0,
-          uniqueClicks: 0,
-          clickThroughRate: '0.00'
+          clicks: safeAnalytics.totalClicks,
+          uniqueClicks: safeAnalytics.uniqueClicks,
+          clickThroughRate: safeAnalytics.totalClicks > 0 ? 
+            ((safeAnalytics.uniqueClicks / safeAnalytics.totalClicks) * 100).toFixed(1) : '0.0'
         },
         breakdown: {
-          daily: [],
-          countries: [],
-          devices: [],
-          browsers: []
+          daily: safeAnalytics.dailyClicks,
+          countries: safeAnalytics.topCountries,
+          devices: safeAnalytics.topDevices, 
+          browsers: safeAnalytics.topBrowsers
         },
         period: {
           range: dateRange,
-          start: new Date().toISOString(),
-          end: new Date().toISOString()
+          start: startDate.toISOString(),
+          end: endDate.toISOString()
         },
         meta: {
-          dataSource: 'none',
-          fallback: true,
-          error: error.message,
-          generatedAt: new Date().toISOString()
-        },
-        // Backward compatibility
-        dailyClicks: [],
-        topCountries: [],
-        topDevices: [],
-        topBrowsers: [],
-        totalClicks: 0,
-        uniqueClicks: 0
-      };
-    }
-  }
-  /**
-   * Fallback PostgreSQL analytics
-   */
-    async getPostgreSQLAnalytics(linkId, startDate, endDate) {
-    try {
-      console.log(`🔄 Getting PostgreSQL analytics for link ${linkId}`);
-
-      // ✅ FIXED: Use 'timestamp' instead of 'createdAt' (Click model uses timestamps: false)
-      const whereClause = {
-        linkId,
-        timestamp: {  // ✅ CHANGED from 'createdAt' to 'timestamp'
-          [Op.between]: [startDate, endDate]
+          dataSource: safeAnalytics.dataSource,
+          fallback: safeAnalytics.fallback,
+          fallbackReason: safeAnalytics.fallbackReason,
+          generatedAt: new Date().toISOString(),
+          linkAge: this.calculateLinkAge(link.createdAt),
+          isEmpty: safeAnalytics.totalClicks === 0,
+          isNewLink: this.isNewLink(link.createdAt)
         }
       };
 
-      // Get total and unique clicks
-      const [totalClicks, uniqueClicks] = await Promise.all([
-        Click.count({ where: whereClause }),
-        Click.count({ 
-          where: whereClause,
-          distinct: true,
-          col: 'ipAddress'
-        })
-      ]);
-
-      // ✅ FIXED: Get daily clicks with proper date formatting
-      const dailyClicks = await Click.findAll({
-        where: whereClause,
-        attributes: [
-          [sequelize.fn('DATE', sequelize.col('timestamp')), 'date'],  // ✅ CHANGED
-          [sequelize.fn('COUNT', sequelize.col('id')), 'clicks']
-        ],
-        group: [sequelize.fn('DATE', sequelize.col('timestamp'))],  // ✅ CHANGED
-        order: [[sequelize.fn('DATE', sequelize.col('timestamp')), 'ASC']]  // ✅ CHANGED
+      // ✅ LOG FINAL RESULT
+      console.log(`📊 Analytics result for link ${linkId}:`, {
+        source: result.meta.dataSource,
+        fallback: result.meta.fallback,
+        totalClicks: result.totals.clicks,
+        isEmpty: result.meta.isEmpty,
+        isNew: result.meta.isNewLink
       });
 
-      // Get top countries
-      const topCountries = await Click.findAll({
-        where: whereClause,
-        attributes: [
-          'country',
-          [sequelize.fn('COUNT', sequelize.col('id')), 'clicks']
-        ],
-        group: ['country'],
-        order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
-        limit: 10
-      });
-
-      // Get top devices
-      const topDevices = await Click.findAll({
-        where: whereClause,
-        attributes: [
-          'deviceType',
-          [sequelize.fn('COUNT', sequelize.col('id')), 'clicks']
-        ],
-        group: ['deviceType'],
-        order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
-        limit: 5
-      });
-
-      // Get top browsers
-      const topBrowsers = await Click.findAll({
-        where: whereClause,
-        attributes: [
-          'browser',
-          [sequelize.fn('COUNT', sequelize.col('id')), 'clicks']
-        ],
-        group: ['browser'],
-        order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
-        limit: 10
-      });
-
-      const result = {
-        totalClicks: parseInt(totalClicks) || 0,
-        uniqueClicks: parseInt(uniqueClicks) || 0,
-        dailyClicks: dailyClicks.map(item => ({
-          date: item.dataValues.date,
-          clicks: parseInt(item.dataValues.clicks) || 0
-        })),
-        topCountries: topCountries.map(item => ({
-          country: item.dataValues.country || 'Unknown',
-          clicks: parseInt(item.dataValues.clicks) || 0
-        })),
-        topDevices: topDevices.map(item => ({
-          device: item.dataValues.deviceType || 'Unknown',
-          clicks: parseInt(item.dataValues.clicks) || 0
-        })),
-        topBrowsers: topBrowsers.map(item => ({
-          browser: item.dataValues.browser || 'Unknown',
-          clicks: parseInt(item.dataValues.clicks) || 0
-        }))
-      };
-
-      console.log(`✅ PostgreSQL analytics: ${result.totalClicks} total clicks, ${result.uniqueClicks} unique`);
       return result;
 
     } catch (error) {
-      console.error('❌ PostgreSQL analytics error:', error);
-      return {
-        totalClicks: 0,
-        uniqueClicks: 0,
-        dailyClicks: [],
+      console.error('❌ Get link analytics error:', error);
+      throw error;
+    }
+  }
+
+  // ===== HELPER METHODS =====
+
+  calculateLinkAge(createdAt) {
+    const now = new Date();
+    const created = new Date(createdAt);
+    const diffHours = Math.floor((now - created) / (1000 * 60 * 60));
+    return diffHours;
+  }
+
+  isNewLink(createdAt) {
+    const now = new Date();
+    const created = new Date(createdAt);
+    const diffHours = Math.floor((now - created) / (1000 * 60 * 60));
+    return diffHours < 24; // Link mới nếu tạo trong 24h
+  }
+  // Helper methods để hỗ trợ
+  calculateLinkAge(createdAt) {
+    const now = new Date();
+    const created = new Date(createdAt);
+    const diffHours = Math.floor((now - created) / (1000 * 60 * 60));
+    return diffHours;
+  }
+
+  isNewLink(createdAt) {
+    const now = new Date();
+    const created = new Date(createdAt);
+    const diffHours = Math.floor((now - created) / (1000 * 60 * 60));
+    return diffHours < 24; // Link mới nếu tạo trong 24h
+  }
+/**
+ * Fallback PostgreSQL analytics
+ */
+  async getPostgreSQLAnalytics(linkId, startDate, endDate) {
+    try {
+      console.log(`🗄️ Getting PostgreSQL analytics for link ${linkId}`);
+      
+      // Get click counts from PostgreSQL
+      const link = await Link.findByPk(linkId);
+      if (!link) {
+        return this.createEmptyAnalytics();
+      }
+
+      // Since we don't store detailed click data in PostgreSQL yet,
+      // return basic stats from link record
+      const result = {
+        totalClicks: link.clickCount || 0,
+        uniqueClicks: link.uniqueClicks || 0,
+        dailyClicks: [], // Could implement if we store click history
         topCountries: [],
         topDevices: [],
         topBrowsers: []
       };
+
+      console.log(`✅ PostgreSQL analytics result:`, result);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ PostgreSQL analytics error:', error);
+      return this.createEmptyAnalytics();
     }
+  }
+
+  createEmptyAnalytics() {
+    return {
+      totalClicks: 0,
+      uniqueClicks: 0,
+      dailyClicks: [],
+      topCountries: [],
+      topDevices: [],
+      topBrowsers: []
+    };
   }
   /**
    * Get user stats with ElasticSearch integration

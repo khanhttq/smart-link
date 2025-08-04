@@ -248,6 +248,137 @@ class AdminController {
     
     return recommendations;
   }
+
+  // GET /api/admin/elasticsearch/status
+  async getElasticsearchStatus(req, res) {
+    try {
+      const status = esConnection.getStatus();
+      const healthCheck = await esConnection.healthCheck();
+      
+      res.json({
+        success: true,
+        data: {
+          connection: status,
+          health: healthCheck,
+          timestamp: new Date().toISOString(),
+          uptime: process.uptime()
+        }
+      });
+    } catch (error) {
+      console.error('ElasticSearch status error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'Failed to get ElasticSearch status'
+      });
+    }
+  }
+
+  // POST /api/admin/elasticsearch/retry
+  async retryElasticsearchConnection(req, res) {
+    try {
+      console.log(`🔄 Manual ElasticSearch retry triggered by admin user ${req.user?.id}`);
+      
+      const result = await esConnection.manualRetry();
+      
+      if (result.success) {
+        res.json({
+          success: true,
+          message: result.message,
+          data: {
+            reconnected: true,
+            retryCount: result.retryCount,
+            timestamp: new Date().toISOString()
+          }
+        });
+      } else {
+        res.status(503).json({
+          success: false,
+          message: result.message,
+          error: result.error,
+          data: {
+            reconnected: false,
+            nextAutoRetry: result.nextAutoRetry,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    } catch (error) {
+      console.error('ElasticSearch retry error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'Failed to retry ElasticSearch connection'
+      });
+    }
+  }
+
+  // POST /api/admin/elasticsearch/stop-retry
+  async stopElasticsearchRetry(req, res) {
+    try {
+      console.log(`🛑 ElasticSearch auto-retry stopped by admin user ${req.user?.id}`);
+      
+      esConnection.stopRetryMechanism();
+      
+      res.json({
+        success: true,
+        message: 'ElasticSearch auto-retry mechanism stopped',
+        data: {
+          retryStopped: true,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      console.error('Stop ElasticSearch retry error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'Failed to stop ElasticSearch retry'
+      });
+    }
+  }
+
+  // GET /api/admin/elasticsearch/info  
+  async getElasticsearchInfo(req, res) {
+    try {
+      if (!esConnection.isReady()) {
+        return res.json({
+          success: true,
+          data: {
+            status: 'Disconnected',
+            message: 'ElasticSearch not connected',
+            retryInfo: esConnection.getStatus()
+          }
+        });
+      }
+
+      const client = esConnection.getClient();
+      const [health, indices, clusterStats] = await Promise.all([
+        client.cluster.health().catch(e => ({ error: e.message })),
+        client.cat.indices({ format: 'json' }).catch(e => ({ error: e.message })),
+        client.cluster.stats().catch(e => ({ error: e.message }))
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          status: 'Connected',
+          cluster: health,
+          indices: indices,
+          stats: clusterStats,
+          connection: esConnection.getStatus(),
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      console.error('ElasticSearch info error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'Failed to get ElasticSearch info'
+      });
+    }
+  }
 }
 
 module.exports = new AdminController();

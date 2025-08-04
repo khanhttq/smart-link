@@ -1,6 +1,7 @@
 // frontend/src/pages/AnalyticsPage.js - ES6 Enhanced with Modern React and Improved UX
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { generateShortUrl } from '../utils/urlUtils';
 import { 
   Card, 
   Row, 
@@ -544,7 +545,7 @@ const AnalyticsPage = () => {
                   type="primary" 
                   icon={<ShareAltOutlined />}
                   onClick={() => {
-                    const fullUrl = `${window.location.origin}/${currentLink.shortCode}`;
+                    const fullUrl = generateShortUrl(currentLink.shortCode, currentLink.domain);
                     navigator.clipboard.writeText(fullUrl);
                     message.success('Link đã được copy!');
                   }}
@@ -553,7 +554,7 @@ const AnalyticsPage = () => {
                 </Button>
                 <Button 
                   icon={<EyeOutlined />}
-                  onClick={() => window.open(`${window.location.origin}/${currentLink.shortCode}`, '_blank')}
+                  onClick={() => window.open(generateShortUrl(currentLink.shortCode, currentLink.domain), '_blank')}
                 >
                   Xem link
                 </Button>
@@ -602,7 +603,7 @@ const AnalyticsPage = () => {
                 </div>
                 <div>
                   <Text type="secondary">Short URL: </Text>
-                  <Text code>{window.location.origin}/{currentLink.shortCode}</Text>
+                  <Text code>{generateShortUrl(currentLink.shortCode, currentLink.domain)}</Text>
                 </div>
                 <div>
                   <Text type="secondary">Destination: </Text>

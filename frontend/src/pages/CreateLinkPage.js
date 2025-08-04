@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { generateShortUrl } from '../utils/urlUtils';
 import {
   Card,
   Form,
@@ -94,50 +95,37 @@ const CreateLinkPage = () => {
   };
 
   const generatePreviewUrl = (shortCode) => {
-    if (!shortCode) return '';
-    const domain = selectedDomain || domains.find(d => d.isDefault);
-    if (domain && !domain.isDefault) {
-      return `https://${domain.domain}/${shortCode}`;
-    }
-    return `${window.location.origin}/${shortCode}`;
+  if (!shortCode) return '';
+  const domain = selectedDomain || domains.find(d => d.isDefault);
+  return generateShortUrl(shortCode, domain);
   };
 
   const handleSubmit = async (values) => {
-    setLoading(true);
-    try {
-      if (!isAuthenticated || !token) {
-        message.error('Vui lòng đăng nhập trước!');
-        navigate('/login');
-        return;
-      }
+  setLoading(true);
+  try {
+    if (!isAuthenticated || !token) {
+      message.error('Vui lòng đăng nhập trước!');
+      navigate('/login');
+      return;
+    }
 
-      const requestData = {
-        originalUrl: values.originalUrl,
-        shortCode: values.customShortCode || undefined,
-        domainId: values.domainId,
-        title: values.title || undefined,
-        campaign: values.campaign || undefined,
-        description: values.description || undefined
-      };
+    const requestData = {
+      originalUrl: values.originalUrl,
+      shortCode: values.customShortCode || undefined,
+      domainId: values.domainId,
+      title: values.title || undefined,
+      campaign: values.campaign || undefined,
+      description: values.description || undefined
+    };
 
-      const response = await apiClient.post('/api/links', requestData);
-      const data = response.data?.data;
+    const response = await apiClient.post('/api/links', requestData);
+    const data = response.data?.data;
 
-      if (!data?.shortCode) throw new Error('Định dạng phản hồi không hợp lệ');
+    if (!data?.shortCode) throw new Error('Định dạng phản hồi không hợp lệ');
 
-      message.success('Liên kết đã được tạo thành công!');
+    message.success('Liên kết đã được tạo thành công!');
 
-      let fullShortUrl;
-      if (data.shortUrl) {
-        fullShortUrl = data.shortUrl;
-      } else {
-        if (selectedDomain && !selectedDomain.isDefault) {
-          fullShortUrl = `https://${selectedDomain.domain}/${data.shortCode}`;
-        } else {
-          fullShortUrl = `${window.location.origin}/${data.shortCode}`;
-        }
-      }
-
+    
       setPreviewData({
         shortCode: data.shortCode,
         shortUrl: fullShortUrl,
