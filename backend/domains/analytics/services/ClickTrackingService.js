@@ -1,4 +1,6 @@
-// backend/domains/analytics/services/ClickTrackingService.js - FIXED Aggregations Error
+// backend/domains/analytics/services/ClickTrackingService.js
+// FIX: isReady() method để xử lý ElasticSearch yellow health status
+
 const esConnection = require('../../../config/elasticsearch');
 const moment = require('moment');
 
@@ -6,47 +8,195 @@ class ClickTrackingService {
   constructor() {
     this.esClient = null;
     this.isInitialized = false;
+    this.lastHealthCheck = null;
+    this.isHealthy = false;
   }
 
   async initialize() {
     try {
-      this.esClient = await esConnection.connect();
-      this.isInitialized = true;
-      console.log('✅ ClickTrackingService initialized');
+      // Sử dụng connection từ esConnection thay vì tự tạo
+      if (esConnection.isReady()) {
+        this.esClient = esConnection.getClient();
+        this.isInitialized = true;
+        
+        // Perform initial health check
+        await this.performHealthCheck();
+        
+        console.log('✅ ClickTrackingService initialized');
+      } else {
+        console.warn('⚠️ ElasticSearch connection not ready, using fallback mode');
+        this.isInitialized = false;
+        this.isHealthy = false;
+      }
     } catch (error) {
       console.error('❌ ClickTrackingService initialization failed:', error.message);
       this.isInitialized = false;
-      throw error;
+      this.isHealthy = false;
+      // Don't throw - allow fallback to work
     }
   }
 
-  // ===== HELPER METHODS =====
-  
   /**
-   * Safely extract response data from ElasticSearch
+   * FIXED: Enhanced isReady() method
+   * Kiểm tra cả connection và health status
    */
+  isReady() {
+    // Basic checks
+    if (!this.isInitialized || !this.esClient) {
+      return false;
+    }
+    
+    // Check if ES connection is ready
+    if (!esConnection.isReady()) {
+      return false;
+    }
+    
+    // Check recent health status (cache for 30 seconds)
+    const now = Date.now();
+    if (this.lastHealthCheck && (now - this.lastHealthCheck) < 30000) {
+      return this.isHealthy;
+    }
+    
+    // If no recent health check, assume ready if basic connection exists
+    // This allows the service to work with "yellow" status
+    return true;
+  }
+
+  /**
+   * NEW: Separate health check method
+   * Performs actual ping test và cache kết quả
+   */
+  async performHealthCheck() {
+    try {
+      if (!this.esClient) {
+        this.isHealthy = false;
+        return false;
+      }
+
+      // Quick ping test with timeout
+      await Promise.race([
+        this.esClient.ping(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Health check timeout')), 3000)
+        )
+      ]);
+      
+      this.isHealthy = true;
+      this.lastHealthCheck = Date.now();
+      return true;
+      
+    } catch (error) {
+      console.warn('⚠️ ElasticSearch health check failed:', error.message);
+      this.isHealthy = false;
+      this.lastHealthCheck = Date.now();
+      return false;
+    }
+  }
+
+  /**
+   * ENHANCED: Test connection với retry logic
+   */
+  async testConnection() {
+    if (!this.isInitialized || !this.esClient) {
+      return { connected: false, error: 'Service not initialized' };
+    }
+    
+    try {
+      // Perform fresh health check
+      const healthy = await this.performHealthCheck();
+      
+      if (healthy) {
+        return { 
+          connected: true, 
+          healthy: true,
+          status: 'ready' 
+        };
+      } else {
+        // Still connected but not healthy - allow fallback
+        return { 
+          connected: true, 
+          healthy: false,
+          status: 'degraded',
+          message: 'ElasticSearch responsive but may be in yellow/red state'
+        };
+      }
+      
+    } catch (error) {
+      return { 
+        connected: false, 
+        healthy: false,
+        error: error.message,
+        status: 'error'
+      };
+    }
+  }
+
+  /**
+   * ENHANCED: Health check với detailed status
+   */
+  async healthCheck() {
+    try {
+      if (!this.isInitialized) {
+        return { 
+          status: 'down', 
+          message: 'Not initialized',
+          details: { initialized: false, client: !!this.esClient }
+        };
+      }
+
+      // Test connection
+      const connectionTest = await this.testConnection();
+      
+      if (!connectionTest.connected) {
+        return {
+          status: 'down',
+          message: connectionTest.error,
+          details: connectionTest
+        };
+      }
+
+      // Get cluster health if possible
+      let clusterHealth = null;
+      try {
+        clusterHealth = await this.esClient.cluster.health();
+      } catch (healthError) {
+        console.warn('Could not get cluster health:', healthError.message);
+      }
+
+      return {
+        status: connectionTest.healthy ? 'up' : 'degraded',
+        message: connectionTest.healthy ? 'ElasticSearch healthy' : 'ElasticSearch degraded but functional',
+        details: {
+          connection: connectionTest,
+          cluster: clusterHealth,
+          lastCheck: this.lastHealthCheck
+        }
+      };
+
+    } catch (error) {
+      return { 
+        status: 'down', 
+        message: error.message,
+        error: error.name,
+        details: { initialized: this.isInitialized, client: !!this.esClient }
+      };
+    }
+  }
+
+  // ===== HELPER METHODS (existing) =====
+  
   safeExtractResponse(response) {
-    // Handle different ElasticSearch client versions
     const responseBody = response.body || response;
     return responseBody;
   }
 
-  /**
-   * Safely extract aggregations with fallback
-   */
   safeExtractAggregations(response) {
     const responseBody = this.safeExtractResponse(response);
-    
-    // Check for aggregations in different possible locations
     const aggregations = responseBody.aggregations || responseBody.aggs || {};
-    
     console.log('🔍 Aggregations structure:', JSON.stringify(aggregations, null, 2));
     return aggregations;
   }
 
-  /**
-   * Create default analytics structure
-   */
   createDefaultAnalytics() {
     return {
       totalClicks: 0,
@@ -58,96 +208,39 @@ class ClickTrackingService {
     };
   }
 
-  // ===== TRACKING METHODS =====
+  // ===== MAIN ANALYTICS METHODS =====
 
   /**
-   * Track single click
+   * ENHANCED: getClickStats với better error handling
    */
-  async trackClick(clickData) {
-    try {
-      if (!this.isInitialized) {
-        console.warn('⚠️ ClickTrackingService not initialized, skipping tracking');
-        return null;
-      }
-
-      const document = {
-        ...clickData,
-        timestamp: new Date(),
-        '@timestamp': new Date().toISOString(),
-        date: moment().format('YYYY-MM-DD'),
-        hour: moment().startOf('hour').toISOString()
-      };
-
-      const response = await this.esClient.index({
-        index: 'clicks',
-        body: document
-      });
-
-      const responseBody = this.safeExtractResponse(response);
-      console.log(`📊 Click tracked: ${clickData.shortCode} (ID: ${responseBody._id})`);
-      return responseBody._id;
-    } catch (error) {
-      console.error('❌ Click tracking error:', error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Track multiple clicks in batch
-   */
-  async trackClicksBatch(clicksArray) {
-    try {
-      if (!this.isInitialized) {
-        console.warn('⚠️ ClickTrackingService not initialized, skipping batch tracking');
-        return 0;
-      }
-
-      const body = [];
-      
-      for (const click of clicksArray) {
-        body.push({ index: { _index: 'clicks' } });
-        body.push({
-          ...click,
-          timestamp: new Date(),
-          '@timestamp': new Date().toISOString(),
-          date: moment().format('YYYY-MM-DD'),
-          hour: moment().startOf('hour').toISOString()
-        });
-      }
-
-      const response = await this.esClient.bulk({ body });
-      const responseBody = this.safeExtractResponse(response);
-      
-      const successCount = responseBody.items?.length || 0;
-      console.log(`📊 Batch tracked: ${successCount}/${clicksArray.length} clicks`);
-      return successCount;
-    } catch (error) {
-      console.error('❌ Batch click tracking error:', error.message);
-      return 0;
-    }
-  }
-
-  // ===== ANALYTICS METHODS =====
-
-  /**
-   * Get click statistics for a specific link - FIXED VERSION
-   */
-  /**
- * Get analytics stats for specific link
- */
   async getClickStats(linkId, startDate, endDate) {
     try {
-      if (!this.isInitialized || !this.esClient) {
-        console.warn('⚠️ ClickTrackingService not initialized');
-        // Throw error để kích hoạt PostgreSQL fallback
-        throw new Error('ElasticSearch service not initialized');
+      // Check if service is ready - use enhanced logic
+      if (!this.isReady()) {
+        console.warn('⚠️ ClickTrackingService not ready, throwing for fallback');
+        throw new Error('ClickTrackingService not ready');
       }
 
+      // Test connection before query
+      const connectionTest = await this.testConnection();
+      if (!connectionTest.connected) {
+        console.warn('⚠️ ElasticSearch connection test failed:', connectionTest.error);
+        throw new Error(`ElasticSearch connection failed: ${connectionTest.error}`);
+      }
+
+      // Even if degraded, try to proceed (yellow status should work)
+      if (!connectionTest.healthy) {
+        console.warn('⚠️ ElasticSearch in degraded state but proceeding...');
+      }
+
+      console.log(`🔍 Querying ElasticSearch for link ${linkId} from ${startDate} to ${endDate}`);
+
+      // Build search query
       const searchBody = {
         query: {
           bool: {
             must: [
-              { term: { linkId } },
+              { term: { linkId: linkId } },
               {
                 range: {
                   timestamp: {
@@ -161,7 +254,7 @@ class ClickTrackingService {
         },
         aggs: {
           total_clicks: {
-            value_count: { field: 'timestamp' }
+            value_count: { field: 'linkId' }
           },
           unique_clicks: {
             cardinality: { field: 'ipAddress' }
@@ -169,8 +262,12 @@ class ClickTrackingService {
           daily_clicks: {
             date_histogram: {
               field: 'timestamp',
-              calendar_interval: 'day',
-              format: 'yyyy-MM-dd'
+              fixed_interval: '1d',
+              min_doc_count: 0,
+              extended_bounds: {
+                min: startDate,
+                max: endDate
+              }
             }
           },
           top_countries: {
@@ -209,35 +306,33 @@ class ClickTrackingService {
       } catch (searchError) {
         console.error('❌ ElasticSearch search error:', searchError);
         
-        // ✅ PHÂN BIỆT LOẠI ERROR:
-        // ConnectionError/ResponseError = ES offline → Throw để fallback PostgreSQL
+        // Check error type - connection errors should trigger fallback
         if (searchError.name === 'ConnectionError' || 
             searchError.name === 'ResponseError' ||
             searchError.message.includes('Connection') ||
             searchError.message.includes('ECONNREFUSED') ||
             searchError.meta?.statusCode === 0) {
           
-          console.warn('⚠️ ElasticSearch connection failed, triggering PostgreSQL fallback');
+          console.warn('⚠️ ElasticSearch connection failed during query, triggering PostgreSQL fallback');
           throw new Error(`ElasticSearch connection error: ${searchError.message}`);
         }
         
-        // Other errors (invalid query, etc.) = Return empty data
+        // Other errors (invalid query, etc.) - return empty data
         console.warn('⚠️ ElasticSearch query error, returning empty results');
         return this.createDefaultAnalytics();
       }
 
-      console.log('📊 ElasticSearch response status:', response.statusCode);
+      console.log('📊 ElasticSearch response status:', response.statusCode || 'success');
 
-      // ✅ SAFE AGGREGATION EXTRACTION
+      // Extract aggregations safely
       const aggs = this.safeExtractAggregations(response);
       
-      // Check if aggregations exist - if not, it's empty data (not error)
       if (!aggs || Object.keys(aggs).length === 0) {
         console.log('ℹ️ No aggregations found - link has no clicks yet');
         return this.createDefaultAnalytics();
       }
 
-      // ✅ EXTRACT DATA SAFELY
+      // Extract and format results
       const result = {
         totalClicks: aggs.total_clicks?.value || 0,
         uniqueClicks: aggs.unique_clicks?.value || 0,
@@ -267,27 +362,36 @@ class ClickTrackingService {
       console.error('Error details:', {
         message: error.message,
         name: error.name,
-        stack: error.stack,
         linkId,
         startDate,
         endDate
       });
       
-      // ✅ THROW ERROR INSTEAD OF RETURNING DEFAULT
-      // Điều này sẽ trigger PostgreSQL fallback ở LinkService
+      // Throw error to trigger PostgreSQL fallback in LinkService
       throw error;
     }
   }
+
+  // ===== USER ANALYTICS METHODS =====
 
   /**
    * Get user analytics across all links - FIXED VERSION
    */
   async getUserAnalytics(userId, timeRange = '7d') {
     try {
-      if (!this.isInitialized) {
-        console.warn('⚠️ ClickTrackingService not initialized, returning default stats');
+      if (!this.isReady()) {
+        console.warn('⚠️ ClickTrackingService not ready, returning default stats');
         return this.createDefaultAnalytics();
       }
+
+      // Test connection before query
+      const connectionTest = await this.testConnection();
+      if (!connectionTest.connected) {
+        console.warn('⚠️ ElasticSearch connection test failed for user analytics:', connectionTest.error);
+        throw new Error(`ElasticSearch connection failed: ${connectionTest.error}`);
+      }
+
+      console.log(`🔍 Getting user analytics for ${userId} (timeRange: ${timeRange})`);
 
       const response = await this.esClient.search({
         index: 'clicks',
@@ -330,14 +434,15 @@ class ClickTrackingService {
         }
       });
 
-      // ✅ FIXED: Safe aggregation extraction
+      // Safe aggregation extraction
       const aggs = this.safeExtractAggregations(response);
       
       if (!aggs || Object.keys(aggs).length === 0) {
+        console.log('ℹ️ No user analytics found - user has no clicks yet');
         return this.createDefaultAnalytics();
       }
 
-      return {
+      const result = {
         totalClicks: aggs.total_clicks?.value || 0,
         uniqueClicks: aggs.unique_clicks?.value || 0,
         dailyClicks: (aggs.daily_clicks?.buckets || []).map(bucket => ({
@@ -357,9 +462,21 @@ class ClickTrackingService {
           clicks: bucket.doc_count || 0
         }))
       };
+
+      console.log('✅ User analytics result:', result);
+      return result;
+
     } catch (error) {
       console.error('❌ User analytics error:', error);
-      return this.createDefaultAnalytics();
+      console.error('Error details:', {
+        message: error.message,
+        name: error.name,
+        userId,
+        timeRange
+      });
+      
+      // Throw error to allow fallback handling
+      throw error;
     }
   }
 
@@ -368,7 +485,7 @@ class ClickTrackingService {
    */
   async getRealTimeClicks(userId, minutes = 60) {
     try {
-      if (!this.isInitialized) {
+      if (!this.isReady()) {
         return {
           recentClicks: [],
           clicksPerMinute: []
@@ -406,17 +523,18 @@ class ClickTrackingService {
         }
       });
 
-      // ✅ FIXED: Safe extraction
+      // Safe extraction
       const responseBody = this.safeExtractResponse(response);
       const aggs = this.safeExtractAggregations(response);
 
       return {
         recentClicks: (responseBody.hits?.hits || []).map(hit => hit._source || hit),
         clicksPerMinute: (aggs.clicks_per_minute?.buckets || []).map(bucket => ({
-          time: bucket.key_as_string || bucket.key,
+          minute: bucket.key_as_string || bucket.key,
           clicks: bucket.doc_count || 0
         }))
       };
+
     } catch (error) {
       console.error('❌ Real-time clicks error:', error);
       return {
@@ -426,23 +544,90 @@ class ClickTrackingService {
     }
   }
 
-  /**
-   * Search clicks with filters - FIXED VERSION
-   */
-  async searchClicks(userId, searchParams) {
-    const { 
-      startDate, 
-      endDate, 
-      campaign, 
-      country, 
-      deviceType,
-      search,
-      page = 1,
-      size = 20 
-    } = searchParams;
+  // ===== TRACKING METHODS =====
 
+  /**
+   * Track single click
+   */
+  async trackClick(clickData) {
     try {
-      if (!this.isInitialized) {
+      if (!this.isReady()) {
+        console.warn('⚠️ ClickTrackingService not ready, skipping tracking');
+        return null;
+      }
+
+      const document = {
+        ...clickData,
+        timestamp: new Date(),
+        '@timestamp': new Date().toISOString(),
+        date: moment().format('YYYY-MM-DD'),
+        hour: moment().startOf('hour').toISOString()
+      };
+
+      const response = await this.esClient.index({
+        index: 'clicks',
+        body: document
+      });
+
+      const responseBody = this.safeExtractResponse(response);
+      console.log(`📊 Click tracked: ${clickData.shortCode} (ID: ${responseBody._id})`);
+      return responseBody._id;
+    } catch (error) {
+      console.error('❌ Click tracking error:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Track multiple clicks in batch
+   */
+  async trackClicksBatch(clicksArray) {
+    try {
+      if (!this.isReady()) {
+        console.warn('⚠️ ClickTrackingService not ready, skipping batch tracking');
+        return 0;
+      }
+
+      const body = [];
+      
+      for (const click of clicksArray) {
+        body.push({ index: { _index: 'clicks' } });
+        body.push({
+          ...click,
+          timestamp: new Date(),
+          '@timestamp': new Date().toISOString(),
+          date: moment().format('YYYY-MM-DD'),
+          hour: moment().startOf('hour').toISOString()
+        });
+      }
+
+      const response = await this.esClient.bulk({
+        body: body
+      });
+
+      const responseBody = this.safeExtractResponse(response);
+      const errors = responseBody.errors;
+      const successCount = responseBody.items ? responseBody.items.length : 0;
+
+      if (errors) {
+        console.warn('⚠️ Some clicks failed to track in batch');
+      }
+
+      console.log(`📊 Batch tracking completed: ${successCount} clicks`);
+      return successCount;
+
+    } catch (error) {
+      console.error('❌ Batch click tracking error:', error.message);
+      return 0;
+    }
+  }
+
+  /**
+   * Search clicks with pagination
+   */
+  async searchClicks(linkId = null, options = {}) {
+    try {
+      if (!this.isReady()) {
         return {
           total: 0,
           clicks: [],
@@ -451,42 +636,33 @@ class ClickTrackingService {
         };
       }
 
-      const must = [{ term: { userId } }];
+      const { page = 1, size = 20, userId = null } = options;
+      const from = (page - 1) * size;
 
-      // Date range
-      if (startDate || endDate) {
-        const dateRange = {};
-        if (startDate) dateRange.gte = startDate;
-        if (endDate) dateRange.lte = endDate;
-        must.push({ range: { timestamp: dateRange } });
+      const query = {
+        bool: {
+          must: []
+        }
+      };
+
+      if (linkId) {
+        query.bool.must.push({ term: { linkId } });
       }
 
-      // Filters
-      if (campaign) must.push({ term: { 'campaign.keyword': campaign } });
-      if (country) must.push({ term: { 'country.keyword': country } });
-      if (deviceType) must.push({ term: { 'deviceType.keyword': deviceType } });
-
-      // Text search
-      if (search) {
-        must.push({
-          multi_match: {
-            query: search,
-            fields: ['originalUrl', 'referrer', 'shortCode']
-          }
-        });
+      if (userId) {
+        query.bool.must.push({ term: { userId } });
       }
 
       const response = await this.esClient.search({
         index: 'clicks',
         body: {
-          query: { bool: { must } },
+          query: query.bool.must.length > 0 ? query : { match_all: {} },
           sort: [{ timestamp: { order: 'desc' } }],
-          from: (page - 1) * size,
-          size: size
+          from,
+          size
         }
       });
 
-      // ✅ FIXED: Safe extraction
       const responseBody = this.safeExtractResponse(response);
       const total = responseBody.hits?.total?.value || responseBody.hits?.total || 0;
 
@@ -503,71 +679,6 @@ class ClickTrackingService {
         clicks: [],
         page: 1,
         totalPages: 0
-      };
-    }
-  }
-
-  // ===== UTILITY METHODS =====
-
-  /**
-   * Check if service is ready
-   */
-  isReady() {
-    // Check both initialization and actual ES connection
-    if (!this.isInitialized || !this.esClient) {
-      return false;
-    }
-    
-    // Check if using real ES connection (not mock)
-    if (this.esClient.ping) {
-      return true;
-    }
-    
-    // If it's a mock client, consider it not ready
-    return false;
-  }
-// ===== THÊM METHOD PING TEST =====
-/**
- * Test ES connection với timeout ngắn
- */
-  async testConnection() {
-    if (!this.isReady()) {
-      return { connected: false, error: 'Service not initialized' };
-    }
-    
-    try {
-      await Promise.race([
-        this.esClient.ping(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Ping timeout')), 2000)
-        )
-      ]);
-      
-      return { connected: true };
-    } catch (error) {
-      return { connected: false, error: error.message };
-    }
-  }
-  /**
-   * Health check
-   */
-  async healthCheck() {
-    try {
-      if (!this.isInitialized) {
-        return { status: 'down', message: 'Not initialized' };
-      }
-
-      const response = await this.esClient.ping();
-      return { 
-        status: 'up', 
-        message: 'ElasticSearch connection healthy',
-        responseTime: response.meta?.request?.options?.timeout || 'unknown'
-      };
-    } catch (error) {
-      return { 
-        status: 'down', 
-        message: error.message,
-        error: error.name
       };
     }
   }

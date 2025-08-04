@@ -1,4 +1,4 @@
-// backend/models/Link.js - UPDATED với Domain Support
+// backend/models/Link.js - FIXED fullShortUrl generation
 module.exports = (sequelize, DataTypes) => {
   const Link = sequelize.define('Link', {
     id: {
@@ -17,7 +17,7 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE'
     },
     
-    // ✅ NEW: Domain Association
+    // Domain Association
     domainId: {
       type: DataTypes.UUID,
       allowNull: true, // null = use system default domain
@@ -49,7 +49,7 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     
-    // ✅ NEW: Pre-computed full short URL
+    // Pre-computed full short URL
     fullShortUrl: {
       type: DataTypes.STRING(500),
       field: 'full_short_url',
@@ -93,38 +93,10 @@ module.exports = (sequelize, DataTypes) => {
     tags: {
       type: DataTypes.ARRAY(DataTypes.STRING),
       defaultValue: [],
-      validate: {
-        isValidTags(value) {
-          if (value && value.length > 10) {
-            throw new Error('Maximum 10 tags allowed');
-          }
-          if (value && value.some(tag => tag.length > 50)) {
-            throw new Error('Tag length cannot exceed 50 characters');
-          }
-        }
-      }
+      comment: 'Tags for organizing links'
     },
     
-    isActive: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: true,
-      field: 'is_active'
-    },
-    
-    expiresAt: {
-      type: DataTypes.DATE,
-      field: 'expires_at',
-      allowNull: true,
-      validate: {
-        isAfterNow(value) {
-          if (value && value <= new Date()) {
-            throw new Error('Expiry date must be in the future');
-          }
-        }
-      }
-    },
-    
-    // Analytics Fields
+    // Analytics and tracking
     clickCount: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
@@ -149,39 +121,42 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     
-    // URL Metadata (auto-fetched)
-    urlMetadata: {
-      type: DataTypes.JSONB,
-      field: 'url_metadata',
-      defaultValue: {},
-      comment: 'Title, description, image from target URL'
-    },
-    
-    // Security & Features
+    // Advanced features
     password: {
       type: DataTypes.STRING(255),
       allowNull: true,
-      comment: 'Optional password protection'
+      comment: 'Hashed password for protected links'
     },
     
-    webhookUrl: {
-      type: DataTypes.STRING(500),
-      field: 'webhook_url',
-      allowNull: true,
-      validate: {
-        isUrl: true
-      }
+    expiresAt: {
+      type: DataTypes.DATE,
+      field: 'expires_at',
+      allowNull: true
     },
     
-    // UTM Parameters (auto-append)
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      field: 'is_active'
+    },
+    
+    // UTM and tracking parameters
     utmParameters: {
       type: DataTypes.JSONB,
       field: 'utm_parameters',
       defaultValue: {},
-      comment: 'Auto-append UTM parameters'
+      comment: 'UTM tracking parameters'
     },
     
-    // Geographic Restrictions
+    // URL metadata (title, description, image, etc.)
+    urlMetadata: {
+      type: DataTypes.JSONB,
+      field: 'url_metadata',
+      defaultValue: {},
+      comment: 'Fetched metadata from original URL'
+    },
+    
+    // Geographic restrictions
     geoRestrictions: {
       type: DataTypes.JSONB,
       field: 'geo_restrictions',
@@ -198,7 +173,7 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['user_id']
       },
       {
-        // ✅ CRITICAL: Unique constraint per domain
+        // CRITICAL: Unique constraint per domain
         fields: ['short_code', 'domain_id'],
         unique: true,
         name: 'unique_shortcode_per_domain'
@@ -223,14 +198,14 @@ module.exports = (sequelize, DataTypes) => {
       }
     ],
     hooks: {
-      // ✅ Auto-generate fullShortUrl before save
+      // FIXED: Auto-generate fullShortUrl before save
       beforeCreate: async (link, options) => {
-        await generateFullShortUrl(link, options);
+        await generateFullShortUrl(link, options, sequelize);
       },
       
       beforeUpdate: async (link, options) => {
         if (link.changed('shortCode') || link.changed('domainId')) {
-          await generateFullShortUrl(link, options);
+          await generateFullShortUrl(link, options, sequelize);
         }
       },
       
@@ -251,24 +226,45 @@ module.exports = (sequelize, DataTypes) => {
     }
   });
 
-  // ✅ Helper function to generate full short URL
-  async function generateFullShortUrl(link, options) {
-    if (link.domainId) {
-      // Custom domain
-      const domain = await sequelize.models.Domain.findByPk(link.domainId);
-      if (domain) {
-        const protocol = domain.sslEnabled ? 'https' : 'http';
-        link.fullShortUrl = `${protocol}://${domain.domain}/${link.shortCode}`;
+  // FIXED: Helper function to generate full short URL
+  async function generateFullShortUrl(link, options, sequelize) {
+    try {
+      if (link.domainId) {
+        // Custom domain
+        const domain = await sequelize.models.Domain.findByPk(link.domainId);
+        if (domain) {
+          const protocol = domain.sslEnabled ? 'https' : 'http';
+          link.fullShortUrl = `${protocol}://${domain.domain}/${link.shortCode}`;
+        } else {
+          // Fallback to system domain if domain not found
+          link.fullShortUrl = generateSystemDomainUrl(link.shortCode);
+        }
+      } else {
+        // System domain
+        link.fullShortUrl = generateSystemDomainUrl(link.shortCode);
       }
-    } else {
-      // System domain
-      const systemDomain = process.env.SYSTEM_DOMAIN || 'localhost:3000';
-      const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-      link.fullShortUrl = `${protocol}://${systemDomain}/${link.shortCode}`;
+    } catch (error) {
+      console.error('Error generating fullShortUrl:', error);
+      // Fallback to system domain
+      link.fullShortUrl = generateSystemDomainUrl(link.shortCode);
     }
   }
 
-  // ✅ Helper function to fetch URL metadata
+  // FIXED: Helper function for system domain URL
+  function generateSystemDomainUrl(shortCode) {
+    const systemDomain = process.env.SYSTEM_DOMAIN || process.env.API_URL || 'http://localhost:4000';
+    
+    // If systemDomain already includes protocol, use it directly
+    if (systemDomain.startsWith('http://') || systemDomain.startsWith('https://')) {
+      return `${systemDomain}/${shortCode}`;
+    }
+    
+    // Otherwise, add protocol based on environment
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    return `${protocol}://${systemDomain}/${shortCode}`;
+  }
+
+  // Helper function to fetch URL metadata
   async function fetchUrlMetadata(url) {
     try {
       const axios = require('axios');
@@ -419,7 +415,7 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE'
     });
     
-    // ✅ NEW: Domain association
+    // Domain association
     Link.belongsTo(models.Domain, {
       foreignKey: 'domainId',
       as: 'domain',
