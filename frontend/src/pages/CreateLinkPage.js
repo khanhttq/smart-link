@@ -128,7 +128,7 @@ const CreateLinkPage = () => {
     
       setPreviewData({
         shortCode: data.shortCode,
-        shortUrl: fullShortUrl,
+        shortUrl: generateShortUrl(data.shortCode, selectedDomain),
         originalUrl: values.originalUrl,
         title: values.title || data.title || 'Không có tiêu đề',
         domain: selectedDomain?.domain || 'shortlink.com',
