@@ -1,6 +1,6 @@
 // frontend/src/pages/DashboardPage.js - FIXED IMPORTS
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom'; // ← Thêm useLocation
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   Card,
   Table,
@@ -34,8 +34,6 @@ import {
   SearchOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-
-// ← Thêm các imports còn thiếu
 import useAuthStore from '../stores/authStore';
 import { useLinkStore } from '../stores/linkStore';
 import { generateShortUrl, extractDomainInfo } from '../utils/urlUtils';
@@ -45,7 +43,7 @@ const { Search } = Input;
 const { Option } = Select;
 
 const DashboardPage = () => {
-  const navigate = useNavigate(); // ← Thêm hook navigate
+  const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuthStore();
   const { links, stats, loading, fetchLinks, fetchStats, deleteLink } = useLinkStore();
@@ -65,8 +63,7 @@ const DashboardPage = () => {
 
   // ===== FIX: Safe links array =====
   const safeLinks = Array.isArray(links) ? links : [];
-
-  // ✅ FIX: Memoize load function to prevent recreation
+  
   const loadDashboardData = useCallback(async () => {
     if (isInitialized) return; // Prevent double loading
     
