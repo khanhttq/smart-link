@@ -6,6 +6,7 @@ const { sequelize } = require('./models');
 const cacheService = require('./core/cache/CacheService');
 const esConnection = require('./config/elasticsearch');
 const linkService = require('./domains/links/services/LinkService');
+const bullMQService = require('./core/queue/BullMQService');
 
 const PORT = process.env.PORT || 4000;
 
@@ -56,8 +57,18 @@ async function startServer() {
 
     // 5. Initialize LinkService (which initializes QueueService)
     console.log('🔗 Initializing services...');
+
+    // Initialize BullMQ first
+    try {
+      await bullMQService.initialize();
+      console.log('✅ Background job system initialized');
+    } catch (error) {
+      console.error('⚠️ Background jobs failed to initialize:', error.message);
+      console.log('📝 Server will continue without background jobs');
+    }
+
     await linkService.initialize();
-    console.log('✅ Services initialized');
+    console.log('✅ Services initialized'); 
 
     // 6. Start HTTP server
     const server = app.listen(PORT, () => {
@@ -113,7 +124,14 @@ async function startServer() {
         } catch (error) {
           console.error('❌ Error closing Redis:', error.message);
         }
-        
+        try {
+          if (bullMQService.isInitialized) {
+            await bullMQService.cleanup();
+            console.log('📋 BullMQ connections closed');
+          }
+        } catch (error) {
+          console.error('❌ Error closing BullMQ:', error.message);
+        }
         console.log('✅ Graceful shutdown complete');
         process.exit(0);
       });

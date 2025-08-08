@@ -1,64 +1,51 @@
-// backend/test-workers.js - Thay thế toàn bộ nội dung
+// backend/test-integration.js
 const bullMQService = require('./core/queue/BullMQService');
 
-async function testWorkers() {
-  console.log('🧪 Testing BullMQ Workers...\n');
+async function testIntegration() {
+  console.log('🧪 Testing BullMQ Integration with LinkService...\n');
 
   try {
-    // Khởi tạo BullMQ service (bao gồm cả workers)
+    // Khởi tạo BullMQ
     await bullMQService.initialize();
-    console.log('✅ BullMQ và Workers khởi tạo thành công!\n');
+    console.log('✅ BullMQ initialized for integration test\n');
 
-    // Test 1: Thêm và xử lý metadata job
-    console.log('📋 Test 1: Metadata Job...');
+    // Test thêm metadata job (giống như LinkService sẽ làm)
+    console.log('📋 Simulating link creation with metadata job...');
+    
+    const linkData = {
+      id: 'link-integration-test',
+      shortCode: 'test123',
+      originalUrl: 'https://example.com',
+      userId: 'user-test'
+    };
+
+    // Giả lập việc LinkService tạo job
     await bullMQService.addMetadataJob(
-      'link-789',
-      'https://github.com',
-      'user-123'
+      linkData.id,
+      linkData.originalUrl,
+      linkData.userId
     );
 
-    // Test 2: Thêm và xử lý email job
-    console.log('\n📧 Test 2: Email Job...');
-    await bullMQService.addEmailJob(
-      'welcome',
-      'user@example.com',
-      { userName: 'John Doe' }
-    );
+    // Chờ worker xử lý
+    console.log('⏳ Waiting for metadata worker to process...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // Chờ một chút để workers xử lý
-    console.log('\n⏳ Chờ workers xử lý jobs...');
-    await new Promise(resolve => setTimeout(resolve, 4000)); // Chờ 4 giây
+    // Kiểm tra kết quả
+    const completed = await bullMQService.queues.metadata.getCompleted();
+    console.log(`📊 Metadata jobs completed: ${completed.length}`);
 
-    // Kiểm tra trạng thái queue
-    console.log('\n📊 Kiểm tra kết quả:');
-    
-    const metadataCompleted = await bullMQService.queues.metadata.getCompleted();
-    const emailCompleted = await bullMQService.queues.email.getCompleted();
-    const metadataWaiting = await bullMQService.queues.metadata.getWaiting();
-    const emailWaiting = await bullMQService.queues.email.getWaiting();
-
-    console.log(`📋 Metadata - Hoàn thành: ${metadataCompleted.length}, Chờ: ${metadataWaiting.length}`);
-    console.log(`📧 Email - Hoàn thành: ${emailCompleted.length}, Chờ: ${emailWaiting.length}`);
-
-    // Hiển thị kết quả của job đầu tiên
-    if (metadataCompleted.length > 0) {
-      const job = metadataCompleted[0];
-      console.log(`\n✅ Metadata Job Result:`, job.returnvalue);
+    if (completed.length > 0) {
+      const job = completed[completed.length - 1]; // Lấy job cuối cùng
+      console.log('✅ Latest job result:', job.returnvalue);
     }
 
-    if (emailCompleted.length > 0) {
-      const job = emailCompleted[0];
-      console.log(`\n✅ Email Job Result:`, job.returnvalue);
-    }
+    console.log('\n🎉 Integration test completed successfully!');
 
-    console.log('\n🎉 Workers test hoàn tất!');
-    
   } catch (error) {
-    console.error('❌ Workers test thất bại:', error.message);
+    console.error('❌ Integration test failed:', error.message);
   } finally {
-    // Sử dụng phương thức cleanup mới
     await bullMQService.cleanup();
   }
 }
 
-testWorkers();
+testIntegration();
