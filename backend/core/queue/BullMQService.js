@@ -244,7 +244,161 @@ class BullMQService {
     }
     }
 
-    // Thêm phương thức cleanup 
+    // Email Notifications và Link Health Check Jobs
+
+        // ===== EMAIL JOBS =====
+        async addWelcomeEmailJob(userEmail, userData) {
+        return await this.addEmailJob('welcome', userEmail, {
+            userName: userData.name || userData.email,
+            loginUrl: process.env.FRONTEND_URL || 'http://localhost:3000'
+        });
+        }
+
+        async addPasswordResetEmailJob(userEmail, resetToken) {
+        return await this.addEmailJob('password-reset', userEmail, {
+            resetUrl: `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`,
+            expiresIn: '1 hour'
+        });
+        }
+
+        async addWeeklyAnalyticsEmailJob(userEmail, userId) {
+        return await this.addEmailJob('analytics-report', userEmail, {
+            userId,
+            period: 'week',
+            reportType: 'weekly'
+        });
+        }
+
+        // ===== ANALYTICS JOBS =====
+        async addClickTrackingBatch(clicksData) {
+        return await this.addClickTrackingJob(clicksData, {
+            priority: 5 // High priority for real-time tracking
+        });
+        }
+
+        async addAnalyticsAggregationJob(period = 'hour') {
+        return await this.addAnalyticsJob('aggregate-clicks', {
+            period,
+            timestamp: new Date()
+        });
+        }
+
+        // ===== HEALTH CHECK JOBS =====
+        async addLinkHealthCheckJob(linkIds = null, options = {}) {
+        return await this.addHealthCheckJob(linkIds, {
+            batchSize: options.batchSize || 50,
+            delay: options.delay || 0
+        });
+        }
+
+        // ===== CLEANUP JOBS =====
+        async addDailyCleanupJob() {
+        const jobs = [];
+        
+        // Clean old clicks (90+ days)
+        jobs.push(await this.addCleanupJob('old-clicks', '90 days'));
+        
+        // Clean expired sessions
+        jobs.push(await this.addCleanupJob('expired-sessions'));
+        
+        // Clean temp files
+        jobs.push(await this.addCleanupJob('temp-files'));
+        
+        return jobs;
+        }
+
+        // ===== RECURRING JOBS SETUP =====
+        async setupRecurringJobs() {
+        console.log('⏰ Setting up recurring jobs...');
+
+        try {
+            // Daily health checks at 2 AM
+            await this.queues.healthCheck.add('daily-health-check', {}, {
+            repeat: { cron: '0 2 * * *' },
+            jobId: 'daily-health-check'
+            });
+
+            // Hourly analytics aggregation
+            await this.queues.analytics.add('hourly-aggregation', {
+            type: 'aggregate-clicks',
+            period: 'hour'
+            }, {
+            repeat: { cron: '0 * * * *' },
+            jobId: 'hourly-analytics'
+            });
+
+            // Daily cleanup at 3 AM
+            await this.queues.cleanup.add('daily-cleanup', {
+            type: 'old-clicks',
+            olderThan: '90 days'
+            }, {
+            repeat: { cron: '0 3 * * *' },
+            jobId: 'daily-cleanup'
+            });
+
+            // Weekly reports on Sundays at 8 AM
+            await this.queues.email.add('weekly-reports', {
+            type: 'analytics-report',
+            data: { reportType: 'weekly' }
+            }, {
+            repeat: { cron: '0 8 * * 0' },
+            jobId: 'weekly-reports'
+            });
+
+            console.log('✅ Recurring jobs scheduled successfully');
+            
+        } catch (error) {
+            console.error('❌ Failed to setup recurring jobs:', error);
+        }
+        }
+
+        // ===== MONITORING METHODS =====
+        async getQueueStats() {
+        const stats = {};
+
+        for (const [name, queue] of Object.entries(this.queues)) {
+            const waiting = await queue.getWaiting();
+            const active = await queue.getActive();
+            const completed = await queue.getCompleted();
+            const failed = await queue.getFailed();
+
+            stats[name] = {
+            waiting: waiting.length,
+            active: active.length,
+            completed: completed.length,
+            failed: failed.length,
+            total: waiting.length + active.length + completed.length + failed.length
+            };
+        }
+
+        return stats;
+        }
+
+        async getFailedJobs(queueName) {
+        if (!this.queues[queueName]) {
+            throw new Error(`Queue ${queueName} not found`);
+        }
+        
+        return await this.queues[queueName].getFailed();
+        }
+
+        async retryFailedJobs(queueName) {
+        if (!this.queues[queueName]) {
+            throw new Error(`Queue ${queueName} not found`);
+        }
+
+        const failed = await this.queues[queueName].getFailed();
+        
+        for (const job of failed) {
+            await job.retry();
+        }
+
+        console.log(`🔄 Retried ${failed.length} failed jobs in ${queueName} queue`);
+        return failed.length;
+        }
+
+
+    // Phương thức cleanup 
     async cleanup() {
     console.log('🧹 Dọn dẹp BullMQ Service...');
 
