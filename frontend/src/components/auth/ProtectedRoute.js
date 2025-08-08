@@ -1,4 +1,4 @@
-// frontend/src/components/auth/ProtectedRoute.js - FIXED VERSION
+// frontend/src/components/auth/ProtectedRoute.js - UPDATED with Smart GuestRoute
 import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Result, Button, Spin, Alert } from 'antd';
@@ -107,9 +107,9 @@ const ProtectedRoute = ({
   );
 };
 
-// Guest Route - chỉ cho phép user chưa đăng nhập  
-export const GuestRoute = ({ children, redirectTo = '/dashboard' }) => {
-  const { isAuthenticated, loading } = useAuth();
+// ✅ UPDATED: Smart Guest Route với role-based redirect
+export const GuestRoute = ({ children }) => {
+  const { user, isAuthenticated, loading } = useAuth();
 
   if (loading) {
     return (
@@ -124,8 +124,23 @@ export const GuestRoute = ({ children, redirectTo = '/dashboard' }) => {
     );
   }
 
-  if (isAuthenticated) {
-    return <Navigate to={redirectTo} replace />;
+  if (isAuthenticated && user) {
+    // ✅ Smart redirect based on user role
+    const getRedirectPath = (user) => {
+      switch (user?.role) {
+        case 'admin':
+          return '/admin';
+        case 'editor':
+          return '/dashboard'; // Editors go to regular dashboard for now
+        default:
+          return '/dashboard';
+      }
+    };
+
+    const redirectPath = getRedirectPath(user);
+    console.log(`👤 Authenticated ${user.role || 'user'} accessing guest route, redirecting to: ${redirectPath}`);
+    
+    return <Navigate to={redirectPath} replace />;
   }
 
   return children;

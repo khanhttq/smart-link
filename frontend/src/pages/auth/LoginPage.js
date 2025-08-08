@@ -1,4 +1,4 @@
-// frontend/src/pages/auth/LoginPage.js - FIXED with safe smartRegistration
+// frontend/src/pages/auth/LoginPage.js - FIXED with Admin Redirect Logic
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -40,7 +40,33 @@ const LoginPage = () => {
     hideSmartRegistration 
   } = authStore;
 
-  // ✅ FIXED: Enhanced submit handler
+  // ✅ ENHANCED: Smart redirect based on user role
+  const getRedirectPath = (user) => {
+    // Check if there's a specific redirect path from navigation state
+    const intendedPath = location.state?.from?.pathname;
+    
+    // If user is admin and no specific path intended, redirect to admin dashboard
+    if (user?.role === 'admin' && !intendedPath) {
+      return '/admin';
+    }
+    
+    // If there's an intended path, go there (respecting user's original navigation)
+    if (intendedPath && intendedPath !== '/login' && intendedPath !== '/register') {
+      return intendedPath;
+    }
+    
+    // Default redirect based on role
+    switch (user?.role) {
+      case 'admin':
+        return '/admin';
+      case 'editor':
+        return '/dashboard'; // Editors go to regular dashboard for now
+      default:
+        return '/dashboard';
+    }
+  };
+
+  // ✅ ENHANCED: Submit handler with smart redirect
   const handleSubmit = async (values) => {
     console.log('🚀 Form submit with values:', values);
     try {
@@ -58,9 +84,18 @@ const LoginPage = () => {
       console.log('📥 Login result:', result);
 
       if (result.success) {
-        const redirectTo = location.state?.from?.pathname || '/dashboard';
-        console.log(`✅ Login successful, redirecting to: ${redirectTo}`);
-        navigate(redirectTo, { replace: true });
+        const { user } = result;
+        const redirectPath = getRedirectPath(user);
+        
+        console.log(`✅ Login successful for ${user.role || 'user'}, redirecting to: ${redirectPath}`);
+        
+        // Show role-specific welcome message
+        if (user.role === 'admin') {
+          console.log('👑 Admin user logged in, redirecting to admin panel');
+        }
+        
+        navigate(redirectPath, { replace: true });
+        
       } else if (result.showSmartRegistration) {
         console.log('📝 Showing smart registration modal');
         // Modal will show automatically via state change
@@ -83,9 +118,11 @@ const LoginPage = () => {
   const handleRegistrationSuccess = (result) => {
     if (result.success) {
       hideSmartRegistration();
-      const redirectTo = location.state?.from?.pathname || '/dashboard';
+      const { user } = result;
+      const redirectPath = getRedirectPath(user);
+      
       setTimeout(() => {
-        navigate(redirectTo, { replace: true });
+        navigate(redirectPath, { replace: true });
       }, 1000);
     }
   };
@@ -145,70 +182,71 @@ const LoginPage = () => {
               </Form.Item>
 
               <Form.Item>
-                <Space className="login-extras" direction="horizontal" style={{ width: '100%', justifyContent: 'space-between' }}>
-                  <Checkbox
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                  >
-                    Ghi nhớ đăng nhập
-                  </Checkbox>
-                  <Link to="/forgot-password">Quên mật khẩu?</Link>
-                </Space>
+                <Row justify="space-between" align="middle">
+                  <Col>
+                    <Checkbox 
+                      checked={rememberMe} 
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                    >
+                      Ghi nhớ đăng nhập
+                    </Checkbox>
+                  </Col>
+                  <Col>
+                    <Link to="/forgot-password" className="login-link">
+                      Quên mật khẩu?
+                    </Link>
+                  </Col>
+                </Row>
               </Form.Item>
 
               <Form.Item>
                 <Button
                   type="primary"
                   htmlType="submit"
+                  size="large"
                   loading={loading}
-                  block
                   icon={<LoginOutlined />}
+                  block
+                  className="login-button"
                 >
-                  Đăng nhập
+                  {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                </Button>
+              </Form.Item>
+
+              <Divider>
+                <Text type="secondary">hoặc</Text>
+              </Divider>
+
+              <Form.Item>
+                <Button
+                  type="default"
+                  size="large"
+                  icon={<GoogleOutlined />}
+                  block
+                  onClick={handleGoogleLogin}
+                  className="google-login-button"
+                >
+                  Đăng nhập với Google
                 </Button>
               </Form.Item>
             </Form>
 
-            <Divider>Hoặc</Divider>
-
-            <Button
-              icon={<GoogleOutlined />}
-              onClick={handleGoogleLogin}
-              className="social-login-btn"
-              block
-            >
-              Đăng nhập với Google
-            </Button>
-
-            <div className="register-link">
-              <Text type="secondary">Chưa có tài khoản? </Text>
-              <Link to="/register">Đăng ký ngay</Link>
+            <div className="login-footer">
+              <Text type="secondary">
+                Chưa có tài khoản?{' '}
+                <Link to="/register" className="login-link">
+                  <strong>Đăng ký ngay</strong>
+                </Link>
+              </Text>
             </div>
           </Card>
-
-          <div className="login-footer">
-            <Space split={<Divider type="vertical" />}>
-              <Link to="/help">Trợ giúp</Link>
-              <Link to="/privacy">Quyền riêng tư</Link>
-              <Link to="/terms">Điều khoản</Link>
-            </Space>
-            <Text type="secondary" className="copyright">
-              © 2024 Shortlink System. All rights reserved.
-            </Text>
-          </div>
         </Col>
       </Row>
 
-      {/* ✅ FIXED: Safe smart registration modal with fallback */}
-      {smartRegistration && (
-        <SmartRegistrationModal
-          visible={smartRegistration.isVisible || false}
-          onCancel={hideSmartRegistration}
-          email={smartRegistration.email || ''}
-          password={smartRegistration.password || ''}
-          onSuccess={handleRegistrationSuccess}
-        />
-      )}
+      {/* Smart Registration Modal */}
+      <SmartRegistrationModal 
+        onRegistrationSuccess={handleRegistrationSuccess}
+      />
     </div>
   );
 };

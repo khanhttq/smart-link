@@ -1,4 +1,4 @@
-// frontend/src/components/layout/Navbar.js - FIXED VERSION
+// frontend/src/components/layout/Navbar.js - FIXED với thứ tự khai báo đúng
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
@@ -10,7 +10,9 @@ import {
   Space, 
   Typography,
   Row,
-  Col
+  Col,
+  Badge,
+  Divider
 } from 'antd';
 import {
   LinkOutlined,
@@ -20,7 +22,11 @@ import {
   UserOutlined,
   LogoutOutlined,
   SettingOutlined,
-  GlobalOutlined
+  GlobalOutlined,
+  CrownOutlined,        // Admin icon
+  TeamOutlined,         // User management
+  CheckSquareOutlined,  // Link moderation
+  MonitorOutlined       // System monitoring
 } from '@ant-design/icons';
 import useAuthStore from '../../stores/authStore';
 
@@ -32,13 +38,44 @@ const Navbar = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthStore();
 
+  // ✅ STEP 1: Khai báo tất cả computed values trước
+  const isAdmin = user?.role === 'admin';
+  const isInAdminSection = location.pathname.startsWith('/admin');
+  const showAdminMenu = false; // NEVER show admin menu in navbar - admin uses sidebar
+  
+  // DEBUG: Log để kiểm tra
+  console.log('🔍 Navbar Debug:', {
+    userRole: user?.role,
+    currentPath: location.pathname,
+    isAdmin,
+    isInAdminSection,
+    showAdminMenu: 'Always false - admin uses sidebar'
+  });
+
+  // ✅ STEP 2: Functions
   const handleLogout = async () => {
     await logout();
     navigate('/');
   };
 
-  // Menu items cho authenticated users
-  const menuItems = [
+  // ✅ STEP 3: useEffect hooks
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    
+    const handleKeyPress = (e) => {
+      // Ctrl/Cmd + Shift + A = Admin Panel
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'A') {
+        e.preventDefault();
+        navigate('/admin');
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyPress);
+    return () => document.removeEventListener('keydown', handleKeyPress);
+  }, [isAdmin, navigate]);
+
+  // ✅ STEP 4: Menu arrays (sau khi đã có isAdmin)
+  const regularMenuItems = [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -61,8 +98,66 @@ const Navbar = () => {
     },
   ];
 
-  // Dropdown menu cho user
+  const adminMenuItems = [
+    {
+      type: 'divider',
+    },
+    {
+      key: 'admin-section',
+      type: 'group',
+      label: (
+        <Space>
+          <CrownOutlined style={{ color: '#faad14' }} />
+          <span style={{ color: '#faad14', fontWeight: 'bold', fontSize: '12px' }}>
+            ADMIN PANEL
+          </span>
+        </Space>
+      ),
+    },
+    {
+      key: '/admin',
+      icon: <MonitorOutlined />,
+      label: (
+        <Link to="/admin" style={{ color: '#faad14' }}>
+          <Space>
+            Admin Dashboard
+            <Badge count="NEW" size="small" style={{ backgroundColor: '#52c41a' }} />
+          </Space>
+        </Link>
+      ),
+    },
+    {
+      key: '/admin/users',
+      icon: <TeamOutlined />,
+      label: <Link to="/admin/users" style={{ color: '#faad14' }}>User Management</Link>,
+    },
+    {
+      key: '/admin/links',
+      icon: <CheckSquareOutlined />,
+      label: <Link to="/admin/links" style={{ color: '#faad14' }}>Link Moderation</Link>,
+    },
+  ];
+
+  const menuItems = showAdminMenu 
+    ? [...adminMenuItems, ...regularMenuItems] 
+    : regularMenuItems;
+
   const userMenuItems = [
+    // Admin access - chỉ hiện cho admin users
+    ...(isAdmin ? [
+      {
+        key: 'admin-panel',
+        icon: <CrownOutlined style={{ color: '#faad14' }} />,
+        label: (
+          <Link to="/admin" style={{ color: '#faad14', fontWeight: 'bold' }}>
+            Admin Panel
+          </Link>
+        ),
+      },
+      {
+        type: 'divider',
+      },
+    ] : []),
     {
       key: 'profile',
       icon: <UserOutlined />,
@@ -75,7 +170,7 @@ const Navbar = () => {
       disabled: true, // Tạm thời disable
     },
     {
-      type: 'divider',
+      type: 'divider'
     },
     {
       key: 'logout',
@@ -86,6 +181,7 @@ const Navbar = () => {
     },
   ];
 
+  // ✅ STEP 5: Render
   return (
     <Header 
       style={{ 
@@ -111,6 +207,7 @@ const Navbar = () => {
             <Title level={3} style={{ margin: 0, color: '#1890ff', fontWeight: 'bold' }}>
               Shortlink
             </Title>
+            {/* No admin badge in navbar */}
           </Link>
         </Col>
 
@@ -155,7 +252,7 @@ const Navbar = () => {
                 </Button>
               </Link>
 
-              {/* User Dropdown */}
+              {/* User Dropdown với admin access */}
               <Dropdown 
                 menu={{ items: userMenuItems }}
                 placement="bottomRight"
@@ -167,23 +264,48 @@ const Navbar = () => {
                     padding: '8px 12px', 
                     height: 'auto',
                     borderRadius: '8px',
-                    border: '1px solid #d9d9d9'
+                    border: '1px solid #d9d9d9',
+                    backgroundColor: 'transparent'
                   }}
                 >
                   <Space>
-                    <Avatar 
-                      icon={<UserOutlined />} 
-                      src={user?.avatar}
-                      size="small"
-                      style={{ backgroundColor: '#1890ff' }}
-                    />
+                    {/* Subtle admin indicator */}
+                    <div style={{ position: 'relative' }}>
+                      <Avatar 
+                        icon={<UserOutlined />} 
+                        src={user?.avatar}
+                        size="small"
+                        style={{ 
+                          backgroundColor: isAdmin ? '#faad14' : '#1890ff' 
+                        }}
+                      />
+                      {/* Small admin indicator */}
+                      {isAdmin && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: -2,
+                            right: -2,
+                            width: 10,
+                            height: 10,
+                            backgroundColor: '#faad14',
+                            border: '2px solid #fff',
+                            borderRadius: '50%',
+                            fontSize: 8
+                          }}
+                          title="Admin User"
+                        />
+                      )}
+                    </div>
+                    
                     <div style={{ textAlign: 'left', lineHeight: '1.3' }}>
                       <div style={{ 
                         fontSize: 14, 
                         fontWeight: 500, 
-                        color: '#262626' 
+                        color: '#262626'
                       }}>
                         {user?.name || 'User'}
+                        {/* No admin label in navbar */}
                       </div>
                       <div style={{ 
                         fontSize: 12, 
