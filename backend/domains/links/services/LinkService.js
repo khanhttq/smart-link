@@ -1,4 +1,5 @@
 // backend/domains/links/services/LinkService.js - ElasticSearch Integration (FIXED)
+const bullMQService = require('../../../core/queue/BullMQService');
 const { Link, Domain, Click, sequelize } = require('../../../models');
 const { Op } = require('sequelize');
 const moment = require('moment');
@@ -103,6 +104,15 @@ class LinkService {
       });
 
       console.log(`✅ Link created: ${result.shortCode} -> ${originalUrl}`);
+      if (bullMQService.isInitialized) {
+      try {
+        await bullMQService.addMetadataJob(link.id, originalUrl, userId);
+        console.log(`📋 Metadata job queued for link: ${link.shortCode}`);
+      } catch (error) {
+        console.error('⚠️ Failed to queue metadata job:', error.message);
+        // Không throw error để không ảnh hưởng tạo link
+      }
+    }
       return result;
 
     } catch (error) {
