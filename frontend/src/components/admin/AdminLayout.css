@@ -1,0 +1,206 @@
+/* frontend/src/components/admin/AdminLayout.css */
+
+/* Admin Menu Styling */
+.admin-menu .ant-menu-item {
+  margin: 4px 8px !important;
+  border-radius: 6px !important;
+  transition: all 0.3s ease;
+}
+
+.admin-menu .ant-menu-item:hover {
+  background-color: rgba(250, 173, 20, 0.1) !important;
+  color: #faad14 !important;
+}
+
+.admin-menu .ant-menu-item-selected {
+  background-color: rgba(250, 173, 20, 0.15) !important;
+  color: #faad14 !important;
+  font-weight: 600;
+}
+
+.admin-menu .ant-menu-item-selected::after {
+  border-right-color: #faad14 !important;
+}
+
+/* Admin menu group labels */
+.admin-menu .ant-menu-item-group-title {
+  color: #8c8c8c !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 8px 16px !important;
+  margin: 8px 0 4px 0 !important;
+}
+
+/* Admin menu divider */
+.admin-menu .ant-menu-item-divider {
+  margin: 8px 16px !important;
+  border-color: #f0f0f0 !important;
+}
+
+/* Hover effects for admin items */
+.admin-menu .ant-menu-item[data-admin="true"] {
+  color: #faad14 !important;
+}
+
+.admin-menu .ant-menu-item[data-admin="true"]:hover {
+  background-color: rgba(250, 173, 20, 0.1) !important;
+  color: #d48806 !important;
+}
+
+/* Sider collapsed state */
+.ant-layout-sider-collapsed .admin-menu .ant-menu-item {
+  padding: 0 calc(50% - 8px) !important;
+}
+
+/* Admin header gradient */
+.admin-header-gradient {
+  background: linear-gradient(135deg, #faad14 0%, #ff7875 100%);
+}
+
+/* Admin sidebar custom scrollbar */
+.ant-layout-sider-children::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ant-layout-sider-children::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.ant-layout-sider-children::-webkit-scrollbar-thumb {
+  background: #faad14;
+  border-radius: 2px;
+}
+
+.ant-layout-sider-children::-webkit-scrollbar-thumb:hover {
+  background: #d48806;
+}
+
+/* Admin content area styling */
+.admin-content {
+  padding: 24px;
+}
+
+.admin-content .ant-card {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+}
+
+.admin-content .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+/* Admin status indicators */
+.admin-status-online {
+  color: #52c41a;
+}
+
+.admin-status-offline {
+  color: #ff4d4f;
+}
+
+.admin-status-warning {
+  color: #faad14;
+}
+
+/* Admin metrics cards */
+.admin-metric-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.admin-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+/* Admin table styling */
+.admin-table .ant-table-thead > tr > th {
+  background-color: #fafafa;
+  color: #262626;
+  font-weight: 600;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.admin-table .ant-table-tbody > tr:hover > td {
+  background-color: rgba(250, 173, 20, 0.03);
+}
+
+/* Admin buttons */
+.admin-btn-primary {
+  background: linear-gradient(135deg, #faad14 0%, #d48806 100%);
+  border-color: #faad14;
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.admin-btn-primary:hover {
+  background: linear-gradient(135deg, #d48806 0%, #ad6800 100%);
+  border-color: #d48806;
+  color: white;
+  transform: translateY(-1px);
+}
+
+/* Admin danger buttons */
+.admin-btn-danger {
+  background: linear-gradient(135deg, #ff7875 0%, #ff4d4f 100%);
+  border-color: #ff7875;
+  color: white;
+}
+
+.admin-btn-danger:hover {
+  background: linear-gradient(135deg, #ff4d4f 0%, #d9363e 100%);
+  border-color: #ff4d4f;
+  color: white;
+  transform: translateY(-1px);
+}
+
+/* Admin header responsive fixes */
+.admin-layout .ant-layout-header {
+  height: 64px !important;
+  line-height: 64px !important;
+  padding: 0 16px !important;
+}
+
+.admin-layout .ant-layout-header .ant-space {
+  align-items: center !important;
+}
+
+/* Fix breadcrumb overflow */
+.admin-breadcrumb {
+  max-width: 200px;
+  overflow: hidden;
+}
+
+.admin-breadcrumb .ant-typography {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Responsive header adjustments */
+@media (max-width: 768px) {
+  .admin-layout .ant-layout-header {
+    padding: 0 12px !important;
+  }
+  
+  .admin-breadcrumb {
+    max-width: 120px;
+  }
+  
+  .admin-layout .ant-space {
+    gap: 8px !important;
+  }
+}
+
+/* Dark theme support */
+[data-theme='dark'] .admin-menu .ant-menu-item-selected {
+  background-color: rgba(250, 173, 20, 0.2) !important;
+}
+
+[data-theme='dark'] .admin-header-gradient {
+  background: linear-gradient(135deg, #d48806 0%, #d9363e 100%);
+}

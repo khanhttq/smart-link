@@ -1,16 +1,15 @@
-// SỬA FILE: backend/domains/admin/routes/adminRoutes.js
-// Fix middleware và thêm ES management routes
-
+// backend/domains/admin/routes/adminRoutes.js - FIXED sử dụng middleware thường
 const express = require('express');
 const adminController = require('../controllers/AdminController');
 const authMiddleware = require('../../auth/middleware/authMiddleware');
 
 const router = express.Router();
 
+// ===== USE NORMAL MIDDLEWARE (NOT STEALTH) =====
 // Apply auth middleware to all routes
 router.use(authMiddleware.verifyToken);
 
-// Apply admin role check to all routes
+// Apply admin role check to all routes  
 router.use(authMiddleware.requireRole('admin'));
 
 // ===== EXISTING ROUTES =====
@@ -19,18 +18,15 @@ router.get('/system-status', adminController.getSystemStatus);
 router.get('/queue-stats', adminController.getQueueStats);
 router.post('/clear-queues', adminController.clearQueues);
 
-// ElasticSearch monitoring (existing)
+// ElasticSearch monitoring
 router.get('/elasticsearch-info', adminController.getElasticsearchInfo);
 router.get('/test-elasticsearch', adminController.testElasticsearch);
-
-// Analytics monitoring
-router.get('/recent-clicks', adminController.getRecentClicks);
-
-// ===== NEW ELASTICSEARCH MANAGEMENT ROUTES =====
-// ElasticSearch connection management
 router.get('/elasticsearch/status', adminController.getElasticsearchStatus);
 router.post('/elasticsearch/retry', adminController.retryElasticsearchConnection);
 router.post('/elasticsearch/stop-retry', adminController.stopElasticsearchRetry);
+
+// Analytics monitoring
+router.get('/recent-clicks', adminController.getRecentClicks);
 
 // ===== QUEUE MANAGEMENT ROUTES =====
 const bullMQService = require('../../../core/queue/BullMQService');
@@ -77,53 +73,46 @@ router.post('/jobs/test', async (req, res) => {
       'https://google.com',
       'test-user'
     );
-    results.push({ type: 'metadata', jobId: metadataJobId });
+    
+    results.push({
+      type: 'metadata',
+      jobId: metadataJobId,
+      status: 'queued'
+    });
 
-    // Test email job
-    const emailJobId = await bullMQService.addWelcomeEmailJob(
-      'test@example.com',
-      { name: 'Test User' }
-    );
-    results.push({ type: 'email', jobId: emailJobId });
+    // Test analytics job (if exists)
+    try {
+      const analyticsJobId = await bullMQService.addAnalyticsJob(
+        'test-event-' + Date.now(),
+        { test: true }
+      );
+      
+      results.push({
+        type: 'analytics',
+        jobId: analyticsJobId,
+        status: 'queued'
+      });
+    } catch (analyticsError) {
+      console.log('ℹ️ Analytics job not available:', analyticsError.message);
+    }
 
     res.json({
       success: true,
-      message: 'Test jobs added successfully',
-      data: { jobs: results }
+      data: {
+        message: 'Test jobs created successfully',
+        jobs: results,
+        timestamp: new Date()
+      }
     });
 
   } catch (error) {
     console.error('❌ Test jobs error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to add test jobs',
-      error: error.message
-    });
-  }
-});
-
-// POST /api/admin/queues/:queueName/retry - Retry failed jobs
-router.post('/queues/:queueName/retry', async (req, res) => {
-  try {
-    const { queueName } = req.params;
-    
-    const retriedCount = await bullMQService.retryFailedJobs(queueName);
-    
-    res.json({
-      success: true,
-      message: `Retried ${retriedCount} failed jobs in ${queueName} queue`,
-      data: { retriedCount }
-    });
-
-  } catch (error) {
-    console.error('❌ Retry jobs error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retry jobs',
+      message: 'Failed to create test jobs',
       error: error.message
     });
   }
 });
 
 module.exports = router;
-

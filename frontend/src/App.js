@@ -1,7 +1,7 @@
-// frontend/src/App.js - FIXED ROUTING để không conflict với shortcodes
+// frontend/src/App.js - FIXED IMPORTS
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { ConfigProvider, App as AntdApp, Layout } from 'antd';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ConfigProvider, App as AntdApp, Layout, Button } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 
 // Import notification service
@@ -17,12 +17,16 @@ import ProfilePage from './pages/ProfilePage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import DomainManagementPage from './pages/DomainManagementPage';
-
+import AdminDashboardPage from './pages/AdminDashboardPage';
 
 // Import components
 import Navbar from './components/layout/Navbar';
+import AdminLayout from './components/admin/AdminLayout';
 import ProtectedRoute, { GuestRoute } from './components/auth/ProtectedRoute';
 import SmartRegistrationModal from './components/SmartRegistrationModal';
+
+// ✅ FIXED: Import authStore instead of AuthContext
+import useAuthStore from './stores/authStore';
 
 // Import styles
 import './App.css';
@@ -52,6 +56,48 @@ const SimpleLayout = ({ children }) => {
       </Content>
     </Layout>
   );
+};
+
+// Admin Route Protection Component
+const AdminRoute = ({ children }) => {
+  // ✅ FIXED: Use authStore hook instead of useContext
+  const { user } = useAuthStore();
+  
+  // Redirect to login if not authenticated
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  // Check admin role - return 404 for security
+  if (user.role !== 'admin') {
+    return (
+      <div style={{ 
+        textAlign: 'center', 
+        padding: '100px 50px',
+        background: '#fff',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <div style={{ fontSize: '120px', marginBottom: '24px' }}>🔍</div>
+        <h1 style={{ fontSize: '48px', marginBottom: '16px', color: '#434343' }}>404</h1>
+        <p style={{ fontSize: '18px', marginBottom: '32px', color: '#666' }}>
+          Trang bạn tìm kiếm không tồn tại
+        </p>
+        <Button 
+          type="primary" 
+          size="large"
+          onClick={() => window.location.href = '/dashboard'}
+        >
+          Về trang chủ
+        </Button>
+      </div>
+    );
+  }
+  
+  return children;
 };
 
 // Component để sử dụng useApp hook
@@ -127,6 +173,25 @@ const AppContent = () => {
             </SimpleLayout>
           </ProtectedRoute>
         } />
+
+        {/* ===== ADMIN ROUTES WITH ADMIN LAYOUT ===== */}
+        <Route path="/admin" element={
+          <AdminRoute>
+            <AdminLayout />
+          </AdminRoute>
+        }>
+          {/* Admin dashboard - default route */}
+          <Route index element={<AdminDashboardPage />} />
+          <Route path="dashboard" element={<AdminDashboardPage />} />
+          
+          {/* TODO: Thêm các admin pages khác */}
+          {/* 
+          <Route path="users" element={<UserManagementPage />} />
+          <Route path="links" element={<LinkModerationPage />} />
+          <Route path="analytics" element={<AdminAnalyticsPage />} />
+          <Route path="system" element={<SystemSettingsPage />} />
+          */}
+        </Route>
 
         {/* ✅ SPECIFIC 404 route - only for unknown app routes */}
         <Route path="/404" element={<NotFoundPage />} />
