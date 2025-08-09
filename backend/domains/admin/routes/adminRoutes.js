@@ -1,21 +1,18 @@
-// backend/domains/admin/routes/adminRoutes.js - UPDATED WITH STEALTH MODE
+// backend/domains/admin/routes/adminRoutes.js - FIXED sử dụng middleware thường
 const express = require('express');
 const adminController = require('../controllers/AdminController');
 const authMiddleware = require('../../auth/middleware/authMiddleware');
-const adminStealthMiddleware = require('../middleware/adminStealthMiddleware');
 
 const router = express.Router();
 
-// ===== STEALTH MODE: Use combined auth + admin check =====
-// This returns 404 for any non-admin access instead of 401/403
-router.use(adminStealthMiddleware.verifyAdminStealth);
+// ===== USE NORMAL MIDDLEWARE (NOT STEALTH) =====
+// Apply auth middleware to all routes
+router.use(authMiddleware.verifyToken);
 
-// ===== ALTERNATIVE: Use separate middlewares (commented out) =====
-// router.use(authMiddleware.verifyToken);
-// router.use(adminStealthMiddleware.requireAdminStealth);
+// Apply admin role check to all routes  
+router.use(authMiddleware.requireRole('admin'));
 
-// ===== EXISTING ROUTES - All protected by stealth mode =====
-
+// ===== EXISTING ROUTES =====
 // System monitoring endpoints
 router.get('/system-status', adminController.getSystemStatus);
 router.get('/queue-stats', adminController.getQueueStats);
@@ -117,25 +114,5 @@ router.post('/jobs/test', async (req, res) => {
     });
   }
 });
-
-// ===== FUTURE ADMIN ROUTES =====
-/*
-// User management (TODO)
-router.get('/users', adminController.getUsers);
-router.get('/users/:id', adminController.getUserDetails);
-router.put('/users/:id/status', adminController.updateUserStatus);
-
-// Link moderation (TODO)
-router.get('/links', adminController.getLinks);
-router.put('/links/:id/moderate', adminController.moderateLink);
-router.delete('/links/bulk', adminController.bulkDeleteLinks);
-
-// System settings (TODO)
-router.get('/settings', adminController.getSystemSettings);
-router.put('/settings', adminController.updateSystemSettings);
-
-// Audit logs (TODO)
-router.get('/audit-logs', adminController.getAuditLogs);
-*/
 
 module.exports = router;

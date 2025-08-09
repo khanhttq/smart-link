@@ -34,7 +34,7 @@ const AdminDashboardPage = () => {
   const [loading, setLoading] = useState(true);
   const [systemStatus, setSystemStatus] = useState(null);
   const [queueStats, setQueueStats] = useState(null);
-  const [recentClicks, setRecentClicks] = useState([]);
+  const [recentClicks, setRecentClicks] = useState([]); // ✅ Initialize as empty array
   const [refreshing, setRefreshing] = useState(false);
 
   // Fetch admin dashboard data
@@ -43,14 +43,17 @@ const AdminDashboardPage = () => {
       setLoading(true);
       
       const [statusRes, queueRes, clicksRes] = await Promise.all([
-        apiClient.get('/admin/system-status'),
-        apiClient.get('/admin/queue-stats'), 
-        apiClient.get('/admin/recent-clicks')
+        apiClient.get('/api/admin/system-status'),
+        apiClient.get('/api/admin/queue-stats'), 
+        apiClient.get('/api/admin/recent-clicks')
       ]);
 
       setSystemStatus(statusRes.data.data);
       setQueueStats(queueRes.data.data);
-      setRecentClicks(clicksRes.data.data || []);
+      
+      // ✅ FIXED: Ensure recentClicks is always an array
+      const clicksData = clicksRes.data.data;
+      setRecentClicks(Array.isArray(clicksData?.clicks) ? clicksData.clicks : []);
       
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
@@ -309,11 +312,14 @@ const AdminDashboardPage = () => {
       >
         <Table
           columns={clicksColumns}
-          dataSource={recentClicks}
-          rowKey="id"
+          dataSource={Array.isArray(recentClicks) ? recentClicks : []} 
+          rowKey={(record, index) => record.id || `click-${index}`}
           pagination={{ pageSize: 10 }}
           scroll={{ x: 800 }}
           size="small"
+          locale={{
+            emptyText: 'Chưa có hoạt động nào'
+          }}
         />
       </Card>
 
