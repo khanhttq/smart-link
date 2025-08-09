@@ -1,5 +1,5 @@
 // backend/domains/links/services/LinkService.js - ElasticSearch Integration (FIXED)
-const bullMQService = require('../../../core/queue/BullMQService');
+
 const { Link, Domain, Click, sequelize } = require('../../../models');
 const { Op } = require('sequelize');
 const moment = require('moment');
@@ -9,7 +9,9 @@ const axios = require('axios');
 
 // Import ElasticSearch services
 const clickTrackingService = require('../../analytics/services/ClickTrackingService');
-const queueService = require('../../../core/queue/QueueService');
+
+// Import BullMQ Services
+const bullMQService = require('../../../core/queue/BullMQService');
 
 class LinkService {
   constructor() {
@@ -18,12 +20,12 @@ class LinkService {
 
   async initialize() {
     if (this.isInitialized) return;
-    
+
     try {
       // Initialize ElasticSearch connection
       await clickTrackingService.initialize();
       console.log('✅ LinkService: ElasticSearch tracking initialized');
-      
+
       this.isInitialized = true;
     } catch (error) {
       console.warn('⚠️ LinkService: ElasticSearch not available, using PostgreSQL only');
@@ -44,18 +46,18 @@ class LinkService {
     try {
       await this.ensureInitialized();
 
-      const { 
-        originalUrl, 
-        customCode, 
-        title, 
-        description, 
-        campaign, 
-        tags = [], 
+      const {
+        originalUrl,
+        customCode,
+        title,
+        description,
+        campaign,
+        tags = [],
         domainId = null,
         password = null,
         expiresAt = null,
         utmParameters = {},
-        geoRestrictions = {}
+        geoRestrictions = {},
       } = linkData;
 
       // Validate URL
@@ -92,36 +94,37 @@ class LinkService {
         geoRestrictions,
         isActive: true,
         clickCount: 0,
-        uniqueClicks: 0
+        uniqueClicks: 0,
       });
 
       // Fetch with associations
       const result = await Link.findByPk(link.id, {
-        include: [{
-          model: Domain,
-          as: 'domain'
-        }]
+        include: [
+          {
+            model: Domain,
+            as: 'domain',
+          },
+        ],
       });
 
       console.log(`✅ Link created: ${result.shortCode} -> ${originalUrl}`);
       if (bullMQService.isInitialized) {
-      try {
-        await bullMQService.addMetadataJob(link.id, originalUrl, userId);
-        console.log(`📋 Metadata job queued for link: ${link.shortCode}`);
-      } catch (error) {
-        console.error('⚠️ Failed to queue metadata job:', error.message);
-        // Không throw error để không ảnh hưởng tạo link
+        try {
+          await bullMQService.addMetadataJob(link.id, originalUrl, userId);
+          console.log(`📋 Metadata job queued for link: ${link.shortCode}`);
+        } catch (error) {
+          console.error('⚠️ Failed to queue metadata job:', error.message);
+          // Không throw error để không ảnh hưởng tạo link
+        }
       }
-    }
       return result;
-
     } catch (error) {
       console.error('❌ Create link error:', error);
       throw error;
     }
   }
 
-   /**
+  /**
    * Process click and track in both PostgreSQL and ElasticSearch
    */
   async processClick(shortCode, customDomain = null, clickData, userLocation = null) {
@@ -130,7 +133,7 @@ class LinkService {
 
       // Find link by shortCode and domain
       const link = await Link.findByShortCodeAndDomain(shortCode, customDomain);
-      
+
       if (!link) {
         throw new Error('Link not found');
       }
@@ -174,7 +177,7 @@ class LinkService {
         city: userLocation?.city,
         deviceType: clickData.deviceType,
         browser: clickData.browser,
-        os: clickData.os
+        os: clickData.os,
       });
 
       // Update link statistics
@@ -182,33 +185,33 @@ class LinkService {
 
       // Track in ElasticSearch (for analytics)
       try {
-        // Queue for batch processing (more efficient)
-        if (queueService && queueService.isInitialized) {
-          await queueService.queueClickTracking(link.id, {
+        // Queue for processing with BullMQ
+        if (bullMQService && bullMQService.isInitialized) {
+          await bullMQService.addClickTrackingJob(link.id, {
             ...clickData,
             linkId: link.id,
-            userId: link.userId, // ✅ THÊM userId
+            userId: link.userId,
             shortCode: link.shortCode,
-            originalUrl: link.originalUrl, // ✅ THÊM originalUrl
-            campaign: link.campaign, // ✅ THÊM campaign
+            originalUrl: link.originalUrl,
+            campaign: link.campaign,
             domain: link.domain?.domain || 'system',
-            ...userLocation
+            ...userLocation,
           });
         } else {
-          // Direct tracking if queue not available
+          // Direct tracking if BullMQ not available
           await clickTrackingService.trackClick({
             linkId: link.id,
-            userId: link.userId, // ✅ THÊM userId
+            userId: link.userId,
             shortCode: link.shortCode,
-            originalUrl: link.originalUrl, // ✅ THÊM originalUrl
-            campaign: link.campaign, // ✅ THÊM campaign
+            originalUrl: link.originalUrl,
+            campaign: link.campaign,
             domain: link.domain?.domain || 'system',
             ...clickData,
-            ...userLocation
+            ...userLocation,
           });
         }
       } catch (esError) {
-        console.warn('⚠️ ElasticSearch tracking failed, continuing with PostgreSQL:', esError.message);
+        console.warn('⚠️ BullMQ tracking failed, using direct tracking:', esError.message);
       }
 
       console.log(`📊 Click tracked: ${link.shortCode} (PG: ${postgresClick.id}, ES: queued)`);
@@ -217,9 +220,8 @@ class LinkService {
       return {
         originalUrl: link.buildFinalUrl(),
         title: link.title,
-        clicks: link.clickCount + 1
+        clicks: link.clickCount + 1,
       };
-
     } catch (error) {
       console.error('❌ Click tracking error:', error);
       throw error;
@@ -232,7 +234,7 @@ class LinkService {
   async updateLinkStats(link, isUnique) {
     const updateData = {
       clickCount: link.clickCount + 1,
-      lastClickAt: new Date()
+      lastClickAt: new Date(),
     };
 
     if (isUnique) {
@@ -246,24 +248,26 @@ class LinkService {
    * Get link analytics from ElasticSearch (with PostgreSQL fallback)
    */
   /**
- * Get link analytics from ElasticSearch (with PostgreSQL fallback)
- */
+   * Get link analytics from ElasticSearch (with PostgreSQL fallback)
+   */
   async getLinkAnalytics(linkId, userId, dateRange = '30d') {
     try {
       await this.ensureInitialized();
 
       // Get link from PostgreSQL
       const link = await Link.findOne({
-        where: { 
+        where: {
           id: linkId,
-          userId 
+          userId,
         },
-        include: [{
-          model: Domain,
-          as: 'domain'
-        }]
+        include: [
+          {
+            model: Domain,
+            as: 'domain',
+          },
+        ],
       });
-      
+
       if (!link) {
         throw new Error('Link not found or unauthorized');
       }
@@ -291,46 +295,52 @@ class LinkService {
         }
 
         console.log(`🔍 Attempting ElasticSearch analytics for link ${linkId}`);
-        
+
         // Try to get analytics from ElasticSearch
         analytics = await clickTrackingService.getClickStats(
-          linkId, 
-          startDate.toISOString(), 
+          linkId,
+          startDate.toISOString(),
           endDate.toISOString()
         );
 
         // ✅ SUCCESS - ES returned data (even if empty)
         analytics.dataSource = 'elasticsearch';
         analytics.fallback = false;
-        
-        console.log(`✅ ElasticSearch analytics successful for link ${linkId}: ${analytics.totalClicks || 0} clicks`);
-        
+
+        console.log(
+          `✅ ElasticSearch analytics successful for link ${linkId}: ${analytics.totalClicks || 0} clicks`
+        );
       } catch (esError) {
-        console.warn('⚠️ ElasticSearch analytics failed, falling back to PostgreSQL:', esError.message);
-        
+        console.warn(
+          '⚠️ ElasticSearch analytics failed, falling back to PostgreSQL:',
+          esError.message
+        );
+
         // ✅ FALLBACK TO POSTGRESQL
         usingFallback = true;
         fallbackReason = esError.message;
-        
+
         analytics = await this.getPostgreSQLAnalytics(linkId, startDate, endDate);
         analytics.dataSource = 'postgresql';
         analytics.fallback = true;
         analytics.fallbackReason = fallbackReason;
-        
-        console.log(`✅ PostgreSQL fallback successful for link ${linkId}: ${analytics.totalClicks || 0} clicks`);
+
+        console.log(
+          `✅ PostgreSQL fallback successful for link ${linkId}: ${analytics.totalClicks || 0} clicks`
+        );
       }
 
       // ✅ ENSURE ANALYTICS HAS REQUIRED STRUCTURE
       const safeAnalytics = {
         totalClicks: analytics.totalClicks || 0,
-        uniqueClicks: analytics.uniqueClicks || 0,  
+        uniqueClicks: analytics.uniqueClicks || 0,
         dailyClicks: analytics.dailyClicks || [],
         topCountries: analytics.topCountries || [],
         topDevices: analytics.topDevices || [],
         topBrowsers: analytics.topBrowsers || [],
         dataSource: analytics.dataSource || 'postgresql',
         fallback: analytics.fallback || false,
-        fallbackReason: analytics.fallbackReason || null
+        fallbackReason: analytics.fallbackReason || null,
       };
 
       // Combine with link metadata
@@ -343,24 +353,26 @@ class LinkService {
           domain: link.domain?.domain || 'system',
           createdAt: link.createdAt,
           clickCount: link.clickCount || 0,
-          isActive: link.isActive
+          isActive: link.isActive,
         },
         totals: {
           clicks: safeAnalytics.totalClicks,
           uniqueClicks: safeAnalytics.uniqueClicks,
-          clickThroughRate: safeAnalytics.totalClicks > 0 ? 
-            ((safeAnalytics.uniqueClicks / safeAnalytics.totalClicks) * 100).toFixed(1) : '0.0'
+          clickThroughRate:
+            safeAnalytics.totalClicks > 0
+              ? ((safeAnalytics.uniqueClicks / safeAnalytics.totalClicks) * 100).toFixed(1)
+              : '0.0',
         },
         breakdown: {
           daily: safeAnalytics.dailyClicks,
           countries: safeAnalytics.topCountries,
-          devices: safeAnalytics.topDevices, 
-          browsers: safeAnalytics.topBrowsers
+          devices: safeAnalytics.topDevices,
+          browsers: safeAnalytics.topBrowsers,
         },
         period: {
           range: dateRange,
           start: startDate.toISOString(),
-          end: endDate.toISOString()
+          end: endDate.toISOString(),
         },
         meta: {
           dataSource: safeAnalytics.dataSource,
@@ -369,8 +381,8 @@ class LinkService {
           generatedAt: new Date().toISOString(),
           linkAge: this.calculateLinkAge(link.createdAt),
           isEmpty: safeAnalytics.totalClicks === 0,
-          isNewLink: this.isNewLink(link.createdAt)
-        }
+          isNewLink: this.isNewLink(link.createdAt),
+        },
       };
 
       // ✅ LOG FINAL RESULT
@@ -379,11 +391,10 @@ class LinkService {
         fallback: result.meta.fallback,
         totalClicks: result.totals.clicks,
         isEmpty: result.meta.isEmpty,
-        isNew: result.meta.isNewLink
+        isNew: result.meta.isNewLink,
       });
 
       return result;
-
     } catch (error) {
       console.error('❌ Get link analytics error:', error);
       throw error;
@@ -419,13 +430,13 @@ class LinkService {
     const diffHours = Math.floor((now - created) / (1000 * 60 * 60));
     return diffHours < 24; // Link mới nếu tạo trong 24h
   }
-/**
- * Fallback PostgreSQL analytics
- */
+  /**
+   * Fallback PostgreSQL analytics
+   */
   async getPostgreSQLAnalytics(linkId, startDate, endDate) {
     try {
       console.log(`🗄️ Getting PostgreSQL analytics for link ${linkId}`);
-      
+
       // Get click counts from PostgreSQL
       const link = await Link.findByPk(linkId);
       if (!link) {
@@ -440,12 +451,11 @@ class LinkService {
         dailyClicks: [], // Could implement if we store click history
         topCountries: [],
         topDevices: [],
-        topBrowsers: []
+        topBrowsers: [],
       };
 
       console.log(`✅ PostgreSQL analytics result:`, result);
       return result;
-      
     } catch (error) {
       console.error('❌ PostgreSQL analytics error:', error);
       return this.createEmptyAnalytics();
@@ -459,45 +469,49 @@ class LinkService {
       dailyClicks: [],
       topCountries: [],
       topDevices: [],
-      topBrowsers: []
+      topBrowsers: [],
     };
   }
   /**
    * Get user stats with ElasticSearch integration
    */
-    async getUserStats(userId) {
+  async getUserStats(userId) {
     try {
       await this.ensureInitialized();
 
       // Get basic stats from PostgreSQL
       const totalLinks = await Link.count({
-        where: { userId, isActive: true }
+        where: { userId, isActive: true },
       });
 
-      const totalClicks = await Link.sum('clickCount', {
-        where: { userId, isActive: true }
-      }) || 0;
+      const totalClicks =
+        (await Link.sum('clickCount', {
+          where: { userId, isActive: true },
+        })) || 0;
 
-      const totalUniqueClicks = await Link.sum('uniqueClicks', {
-        where: { userId, isActive: true }
-      }) || 0;
+      const totalUniqueClicks =
+        (await Link.sum('uniqueClicks', {
+          where: { userId, isActive: true },
+        })) || 0;
 
       // ✅ THÊM 2 DÒNG NÀY:
       const activeLinks = await Link.count({
-        where: { userId, isActive: true }
+        where: { userId, isActive: true },
       });
 
-      const avgClicks = totalLinks > 0 ? (totalClicks / totalLinks) : 0;
+      const avgClicks = totalLinks > 0 ? totalClicks / totalLinks : 0;
 
       // Get recent links...
       const recentLinks = await Link.findAll({
         where: { userId, isActive: true },
-        include: [{
-          model: Domain,
-          as: 'domain'
-        }],
+        include: [
+          {
+            model: Domain,
+            as: 'domain',
+          },
+        ],
         order: [['createdAt', 'DESC']],
-        limit: 5
+        limit: 5,
       });
 
       // Try to get enhanced analytics...
@@ -514,22 +528,20 @@ class LinkService {
         totalLinks,
         totalClicks,
         totalUniqueClicks,
-        activeLinks,        // ✅ THÊM
+        activeLinks, // ✅ THÊM
         avgClicks: parseFloat(avgClicks.toFixed(1)), // ✅ THÊM
-        clickThroughRate: totalLinks > 0 ? 
-          (totalClicks / totalLinks).toFixed(2) : 0,
-        recentLinks: recentLinks.map(link => ({
+        clickThroughRate: totalLinks > 0 ? (totalClicks / totalLinks).toFixed(2) : 0,
+        recentLinks: recentLinks.map((link) => ({
           id: link.id,
           shortCode: link.shortCode,
           title: link.title,
           originalUrl: link.originalUrl,
           clickCount: link.clickCount,
           domain: link.domain?.domain || 'system',
-          createdAt: link.createdAt
+          createdAt: link.createdAt,
         })),
-        enhancedAnalytics
+        enhancedAnalytics,
       };
-
     } catch (error) {
       console.error('❌ Get user stats error:', error);
       throw error;
@@ -547,7 +559,7 @@ class LinkService {
         search = '',
         campaign = '',
         sortBy = 'createdAt',
-        sortOrder = 'DESC'
+        sortOrder = 'DESC',
       } = options;
 
       const offset = (page - 1) * limit;
@@ -558,7 +570,7 @@ class LinkService {
         whereClause[Op.or] = [
           { title: { [Op.iLike]: `%${search}%` } },
           { originalUrl: { [Op.iLike]: `%${search}%` } },
-          { shortCode: { [Op.iLike]: `%${search}%` } }
+          { shortCode: { [Op.iLike]: `%${search}%` } },
         ];
       }
 
@@ -569,13 +581,15 @@ class LinkService {
 
       const { count, rows } = await Link.findAndCountAll({
         where: whereClause,
-        include: [{
-          model: Domain,
-          as: 'domain'
-        }],
+        include: [
+          {
+            model: Domain,
+            as: 'domain',
+          },
+        ],
         order: [[sortBy, sortOrder]],
         limit,
-        offset
+        offset,
       });
 
       return {
@@ -584,10 +598,9 @@ class LinkService {
           current: page,
           pages: Math.ceil(count / limit),
           total: count,
-          limit
-        }
+          limit,
+        },
       };
-
     } catch (error) {
       console.error('❌ Get user links error:', error);
       throw error;
@@ -600,7 +613,7 @@ class LinkService {
   async updateLink(linkId, userId, updateData) {
     try {
       const link = await Link.findOne({
-        where: { id: linkId, userId }
+        where: { id: linkId, userId },
       });
 
       if (!link) {
@@ -609,22 +622,23 @@ class LinkService {
 
       const allowedFields = ['title', 'description', 'campaign', 'tags', 'isActive', 'expiresAt'];
       const filteredData = {};
-      
-      allowedFields.forEach(field => {
+
+      allowedFields.forEach((field) => {
         if (updateData[field] !== undefined) {
           filteredData[field] = updateData[field];
         }
       });
 
       await link.update(filteredData);
-      
-      return await Link.findByPk(linkId, {
-        include: [{
-          model: Domain,
-          as: 'domain'
-        }]
-      });
 
+      return await Link.findByPk(linkId, {
+        include: [
+          {
+            model: Domain,
+            as: 'domain',
+          },
+        ],
+      });
     } catch (error) {
       console.error('❌ Update link error:', error);
       throw error;
@@ -637,7 +651,7 @@ class LinkService {
   async deleteLink(linkId, userId) {
     try {
       const link = await Link.findOne({
-        where: { id: linkId, userId }
+        where: { id: linkId, userId },
       });
 
       if (!link) {
@@ -646,7 +660,6 @@ class LinkService {
 
       await link.update({ isActive: false });
       return { success: true };
-
     } catch (error) {
       console.error('❌ Delete link error:', error);
       throw error;
@@ -706,7 +719,7 @@ class LinkService {
 
   async isUniqueClick(linkId, ipAddress) {
     const existing = await Click.findOne({
-      where: { linkId, ipAddress }
+      where: { linkId, ipAddress },
     });
     return !existing;
   }
@@ -734,7 +747,6 @@ class LinkService {
 
     return { startDate: startDate.toDate(), endDate: endDate.toDate() };
   }
-
 }
 
 module.exports = new LinkService();

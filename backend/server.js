@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 4000;
 async function startServer() {
   try {
     console.log('🚀 Starting Shortlink Backend...');
-    
+
     // 1. Connect to PostgreSQL
     console.log('📊 Connecting to PostgreSQL...');
     await sequelize.authenticate();
@@ -33,29 +33,32 @@ async function startServer() {
     // 4. Connect to ElasticSearch - IMPROVED HANDLING
     console.log('🔍 Connecting to ElasticSearch...');
     let esStatus = 'disconnected';
-    
+
     try {
       await esConnection.connect();
+
+      // WAIT for connection to be fully ready
+      let retries = 0;
+      while (!esConnection.isReady() && retries < 10) {
+        console.log(`🔄 Waiting for ElasticSearch to be ready... (${retries + 1}/10)`);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        retries++;
+      }
+
       if (esConnection.isReady()) {
-        console.log('✅ ElasticSearch connected');
+        console.log('✅ ElasticSearch connected and ready');
         esStatus = 'connected';
       } else {
-        console.warn('⚠️ ElasticSearch connection returned but not ready');
+        console.warn('⚠️ ElasticSearch connection timeout');
         esStatus = 'disconnected';
       }
     } catch (error) {
       console.warn('⚠️ ElasticSearch connection failed:', error.message);
       console.warn('ℹ️ Application will continue with PostgreSQL fallback for analytics');
       esStatus = 'disconnected';
-      
-      // Trong production có thể muốn fail hard
-      if (process.env.NODE_ENV === 'production' && process.env.REQUIRE_ELASTICSEARCH === 'true') {
-        console.error('💥 ElasticSearch required in production but connection failed');
-        process.exit(1);
-      }
     }
 
-    // 5. Initialize LinkService (which initializes QueueService)
+    // 5. Initialize LinkService (BullMQ already initialized above)
     console.log('🔗 Initializing services...');
 
     // Initialize BullMQ first
@@ -68,7 +71,7 @@ async function startServer() {
     }
 
     await linkService.initialize();
-    console.log('✅ Services initialized'); 
+    console.log('✅ Services initialized');
 
     // 6. Start HTTP server
     const server = app.listen(PORT, () => {
@@ -80,20 +83,20 @@ async function startServer() {
       console.log(`📝 API Docs: http://localhost:${PORT}/`);
       console.log('🎉 ===============================================');
       console.log('');
-      
+
       // Log service status
       console.log('📋 Service Status:');
       console.log(`  🗄️  PostgreSQL: ✅ Connected`);
       console.log(`  🔄 Redis: ✅ Connected`);
-      
+
       if (esStatus === 'connected') {
         console.log(`  🔍 ElasticSearch: ✅ Connected`);
       } else {
         console.log(`  🔍 ElasticSearch: ⚠️ Disconnected (Using PostgreSQL fallback)`);
       }
-      
+
       console.log('');
-      
+
       // Show fallback status if needed
       if (esStatus === 'disconnected') {
         console.log('📝 Notes:');
@@ -107,17 +110,17 @@ async function startServer() {
     // Graceful shutdown
     const gracefulShutdown = async (signal) => {
       console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
-      
+
       server.close(async () => {
         console.log('📝 HTTP server closed');
-        
+
         try {
           await sequelize.close();
           console.log('📊 PostgreSQL connection closed');
         } catch (error) {
           console.error('❌ Error closing PostgreSQL:', error.message);
         }
-        
+
         try {
           await cacheService.disconnect();
           console.log('🔄 Redis connection closed');
@@ -139,7 +142,6 @@ async function startServer() {
 
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
   } catch (error) {
     console.error('💥 Failed to start server:', error);
     process.exit(1);

@@ -1,5 +1,5 @@
 // backend/domains/admin/controllers/AdminController.js - FIXED with functions
-const queueService = require('../../../core/queue/QueueService');
+const bullMQService = require('../../../core/queue/BullMQService');
 const cacheService = require('../../../core/cache/CacheService');
 const esConnection = require('../../../config/elasticsearch');
 const clickTrackingService = require('../../analytics/services/ClickTrackingService');
@@ -8,14 +8,14 @@ const clickTrackingService = require('../../analytics/services/ClickTrackingServ
 
 const getQueueRecommendations = (stats) => {
   const recommendations = [];
-  
+
   try {
     // Check if stats has the expected structure
     if (!stats || typeof stats !== 'object') {
       recommendations.push({
         type: 'info',
         message: 'Queue statistics are not available',
-        action: 'Check queue service initialization'
+        action: 'Check BullMQ service initialization',
       });
       return recommendations;
     }
@@ -25,46 +25,45 @@ const getQueueRecommendations = (stats) => {
       recommendations.push({
         type: 'warning',
         message: `High click tracking queue: ${stats.clickTracking.pending} pending jobs`,
-        action: 'Consider increasing batch size or processing interval'
+        action: 'Consider increasing batch size or processing interval',
       });
     }
-    
+
     // Check email notifications queue
     if (stats.emailNotifications && stats.emailNotifications.pending > 50) {
       recommendations.push({
         type: 'warning',
         message: `High email queue: ${stats.emailNotifications.pending} pending jobs`,
-        action: 'Check email service configuration'
+        action: 'Check email service configuration',
       });
     }
-    
+
     // Check analytics queue
     if (stats.analytics && stats.analytics.pending > 75) {
       recommendations.push({
         type: 'warning',
         message: `High analytics queue: ${stats.analytics.pending} pending jobs`,
-        action: 'Consider optimizing analytics processing'
+        action: 'Consider optimizing analytics processing',
       });
     }
-    
+
     // All good
     if (recommendations.length === 0) {
       recommendations.push({
         type: 'success',
-        message: 'All queues are operating normally',
-        action: 'No action required'
+        message: 'All BullMQ queues are operating normally',
+        action: 'No action required',
       });
     }
-    
   } catch (error) {
     console.error('Error generating queue recommendations:', error);
     recommendations.push({
       type: 'error',
       message: 'Unable to analyze queue performance',
-      action: 'Check queue service status'
+      action: 'Check queue service status',
     });
   }
-  
+
   return recommendations;
 };
 
@@ -74,8 +73,8 @@ const getQueueRecommendations = (stats) => {
 const getSystemStatus = async (req, res) => {
   try {
     const [queueStats, cacheStats] = await Promise.all([
-      queueService.getStats(),
-      cacheService.getStats()
+      bullMQService.getQueueStats(),
+      cacheService.getStats(),
     ]);
 
     const systemStatus = {
@@ -83,34 +82,34 @@ const getSystemStatus = async (req, res) => {
       services: {
         elasticsearch: {
           connected: esConnection.isReady(),
-          status: esConnection.isReady() ? 'Connected' : 'Mock Mode'
+          status: esConnection.isReady() ? 'Connected' : 'Mock Mode',
         },
         redis: {
           connected: cacheStats?.connected || false,
-          status: cacheStats?.connected ? 'Connected' : 'Disconnected'
+          status: cacheStats?.connected ? 'Connected' : 'Disconnected',
         },
         queue: {
           status: 'Running',
-          stats: queueStats
-        }
+          stats: queueStats,
+        },
       },
       performance: {
         uptime: process.uptime(),
         memory: process.memoryUsage(),
-        cpu: process.cpuUsage()
-      }
+        cpu: process.cpuUsage(),
+      },
     };
 
     res.json({
       success: true,
-      data: systemStatus
+      data: systemStatus,
     });
   } catch (error) {
     console.error('System status error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'Failed to get system status'
+      message: 'Failed to get system status',
     });
   }
 };
@@ -118,22 +117,22 @@ const getSystemStatus = async (req, res) => {
 // GET /api/admin/queue-stats - ✅ FIXED
 const getQueueStats = async (req, res) => {
   try {
-    const stats = queueService.getStats();
-    
+    const stats = await bullMQService.getQueueStats();
+
     res.json({
       success: true,
       data: {
         timestamp: new Date().toISOString(),
         queues: stats,
-        recommendations: getQueueRecommendations(stats) // ✅ Direct function call
-      }
+        recommendations: getQueueRecommendations(stats),
+      },
     });
   } catch (error) {
     console.error('Queue stats error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'Failed to get queue stats'
+      message: 'Failed to get queue stats',
     });
   }
 };
@@ -142,18 +141,18 @@ const getQueueStats = async (req, res) => {
 const clearQueues = async (req, res) => {
   try {
     const { queue } = req.body; // Specific queue or 'all'
-    
+
     if (queue === 'all') {
-      queueService.clearQueues();
+      await bullMQService.clearQueues();
       res.json({
         success: true,
-        message: 'All queues cleared'
+        message: 'All BullMQ queues cleared',
       });
     } else {
       // TODO: Clear specific queue
       res.json({
         success: false,
-        message: 'Specific queue clearing not implemented yet'
+        message: 'Specific queue clearing not implemented yet',
       });
     }
   } catch (error) {
@@ -161,7 +160,7 @@ const clearQueues = async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'Failed to clear queues'
+      message: 'Failed to clear queues',
     });
   }
 };
@@ -174,15 +173,15 @@ const getElasticsearchInfo = async (req, res) => {
         success: true,
         data: {
           status: 'Mock Mode',
-          message: 'ElasticSearch not connected, using mock client'
-        }
+          message: 'ElasticSearch not connected, using mock client',
+        },
       });
     }
 
     const client = esConnection.getClient();
     const [health, indices] = await Promise.all([
       client.cluster.health(),
-      client.cat.indices({ format: 'json' })
+      client.cat.indices({ format: 'json' }),
     ]);
 
     res.json({
@@ -191,15 +190,15 @@ const getElasticsearchInfo = async (req, res) => {
         status: 'Connected',
         cluster: health,
         indices: indices,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error('ElasticSearch info error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'Failed to get ElasticSearch info'
+      message: 'Failed to get ElasticSearch info',
     });
   }
 };
@@ -209,33 +208,33 @@ const getRecentClicks = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 20;
     const userId = req.query.userId; // Optional filter by user
-    
+
     // Get recent clicks from ElasticSearch
     const searchParams = {
       page: 1,
-      size: limit
+      size: limit,
     };
-    
+
     if (userId) {
       searchParams.userId = userId;
     }
 
     const result = await clickTrackingService.searchClicks(null, searchParams);
-    
+
     res.json({
       success: true,
       data: {
         clicks: result.clicks || [],
         total: result.total || 0,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error('Recent clicks error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'Failed to get recent clicks'
+      message: 'Failed to get recent clicks',
     });
   }
 };
@@ -248,7 +247,7 @@ const testElasticsearch = async (req, res) => {
       test: true,
       message: 'ElasticSearch test document',
       timestamp: new Date().toISOString(),
-      nodeEnv: process.env.NODE_ENV
+      nodeEnv: process.env.NODE_ENV,
     };
 
     const result = await clickTrackingService.trackClick({
@@ -260,7 +259,7 @@ const testElasticsearch = async (req, res) => {
       userAgent: req.get('User-Agent'),
       referrer: req.get('Referer'),
       campaign: 'test',
-      ...testDoc
+      ...testDoc,
     });
 
     res.json({
@@ -269,15 +268,15 @@ const testElasticsearch = async (req, res) => {
         message: 'ElasticSearch test completed',
         documentId: result,
         testDoc,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error('ElasticSearch test error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'ElasticSearch test failed'
+      message: 'ElasticSearch test failed',
     });
   }
 };
@@ -289,7 +288,7 @@ const getElasticsearchStatus = async (req, res) => {
     const status = {
       connected: esConnection.isReady(),
       mode: esConnection.isReady() ? 'real' : 'mock',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
     if (esConnection.isReady()) {
@@ -300,13 +299,13 @@ const getElasticsearchStatus = async (req, res) => {
 
     res.json({
       success: true,
-      data: status
+      data: status,
     });
   } catch (error) {
     console.error('ElasticSearch status error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -316,13 +315,13 @@ const retryElasticsearchConnection = async (req, res) => {
     // This would trigger a reconnection attempt
     res.json({
       success: true,
-      message: 'ElasticSearch reconnection initiated'
+      message: 'ElasticSearch reconnection initiated',
     });
   } catch (error) {
     console.error('ElasticSearch retry error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -332,13 +331,13 @@ const stopElasticsearchRetry = async (req, res) => {
     // This would stop reconnection attempts
     res.json({
       success: true,
-      message: 'ElasticSearch retry stopped'
+      message: 'ElasticSearch retry stopped',
     });
   } catch (error) {
     console.error('ElasticSearch stop retry error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -353,5 +352,5 @@ module.exports = {
   testElasticsearch,
   getElasticsearchStatus,
   retryElasticsearchConnection,
-  stopElasticsearchRetry
+  stopElasticsearchRetry,
 };
