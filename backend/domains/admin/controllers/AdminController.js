@@ -3,6 +3,7 @@ const bullMQService = require('../../../core/queue/BullMQService');
 const cacheService = require('../../../core/cache/CacheService');
 const esConnection = require('../../../config/elasticsearch');
 const clickTrackingService = require('../../analytics/services/ClickTrackingService');
+const adminStatsService = require('../services/AdminStatsService');
 
 // ===== UTILITY FUNCTIONS =====
 
@@ -73,9 +74,14 @@ const getQueueRecommendations = (stats) => {
 const getSystemStatus = async (req, res) => {
   try {
     const [queueStats, cacheStats] = await Promise.all([
-      bullMQService.getQueueStats(),
+      bullMQService.isInitialized ? bullMQService.getQueueStats() : {},
       cacheService.getStats(),
     ]);
+
+    // ✅ FIXED: Check queue service status properly
+    const queueStatus =
+      queueStats && Object.keys(queueStats).length > 0 ? 'Running' : 'Disconnected';
+    const queueConnected = queueStatus === 'Running';
 
     const systemStatus = {
       timestamp: new Date().toISOString(),
@@ -89,7 +95,8 @@ const getSystemStatus = async (req, res) => {
           status: cacheStats?.connected ? 'Connected' : 'Disconnected',
         },
         queue: {
-          status: 'Running',
+          connected: queueConnected, // ← THÊM FIELD NÀY
+          status: queueStatus, // ← SỬA LOGIC
           stats: queueStats,
         },
       },
@@ -97,6 +104,13 @@ const getSystemStatus = async (req, res) => {
         uptime: process.uptime(),
         memory: process.memoryUsage(),
         cpu: process.cpuUsage(),
+      },
+      serverInfo: {
+        nodeVersion: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        pid: process.pid,
+        environment: process.env.NODE_ENV || 'development',
       },
     };
 
@@ -238,6 +252,29 @@ const getRecentClicks = async (req, res) => {
     });
   }
 };
+const getAdminStatistics = async (req, res) => {
+  try {
+    console.log('📊 Getting admin statistics...');
+
+    const stats = await adminStatsService.getAllStats();
+
+    res.json({
+      success: true,
+      data: {
+        statistics: stats,
+        timestamp: new Date().toISOString(),
+        message: 'Admin statistics retrieved successfully',
+      },
+    });
+  } catch (error) {
+    console.error('❌ Admin statistics error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to get admin statistics',
+    });
+  }
+};
 
 // GET /api/admin/test-elasticsearch
 const testElasticsearch = async (req, res) => {
@@ -340,6 +377,29 @@ const stopElasticsearchRetry = async (req, res) => {
       error: error.message,
     });
   }
+  const getAdminStatistics = async (req, res) => {
+    try {
+      console.log('📊 Getting admin statistics...');
+
+      const stats = await adminStatsService.getAllStats();
+
+      res.json({
+        success: true,
+        data: {
+          statistics: stats,
+          timestamp: new Date().toISOString(),
+          message: 'Admin statistics retrieved successfully',
+        },
+      });
+    } catch (error) {
+      console.error('❌ Admin statistics error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'Failed to get admin statistics',
+      });
+    }
+  };
 };
 
 // ===== EXPORTS =====
@@ -353,4 +413,5 @@ module.exports = {
   getElasticsearchStatus,
   retryElasticsearchConnection,
   stopElasticsearchRetry,
+  getAdminStatistics,
 };
