@@ -1,698 +1,880 @@
-// frontend/src/pages/AdminDashboardPage.js - COMPLETE WITH SSE + DEBUG
-import React, { useState, useEffect } from "react";
+// Complete AdminDashboardPage.js - Fixed Authentication
+// Replace your entire AdminDashboardPage.js with this file
+
+import React, { useState, useEffect, useRef } from "react";
 import {
+  Card,
   Row,
   Col,
-  Card,
   Statistic,
-  Alert,
-  Table,
-  Tag,
-  Button,
   Space,
-  Divider,
-  Progress,
+  Button,
+  Table,
+  Alert,
   Typography,
-  notification,
+  Progress,
+  Tag,
+  Avatar,
+  Tooltip,
+  Divider,
+  Badge,
+  Empty,
+  Spin,
+  Result,
 } from "antd";
 import {
   UserOutlined,
   LinkOutlined,
   EyeOutlined,
-  DashboardOutlined,
-  ReloadOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  WarningOutlined,
   ClockCircleOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  WarningOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined,
+  ReloadOutlined,
+  DatabaseOutlined,
+  CloudServerOutlined,
+  WifiOutlined,
+  GlobalOutlined,
+  ThunderboltOutlined,
+  TeamOutlined,
+  ApiOutlined,
+  HddOutlined,
+  SafetyOutlined,
+  TrendingUpOutlined,
+  TrendingDownOutlined,
+  SecurityScanOutlined,
+  MonitorOutlined,
 } from "@ant-design/icons";
-import apiClient from "../utils/apiClient";
-import useAdminSSE from "../hooks/useAdminSSE";
-import { useAuth } from "../hooks/useAuth";
+import notificationService from "../services/notificationService";
+import useAuthStore from "../stores/authStore";
 
 const { Title, Text } = Typography;
 
-const AdminDashboardPage = () => {
-  // ✅ STANDARD: Use useAuth like other pages
-  const { user } = useAuth();
+// ==========================================
+// API SERVICE - FIXED AUTHENTICATION
+// ==========================================
+const adminAPI = {
+  getBaseUrl: () => process.env.REACT_APP_API_URL || "http://localhost:4000",
 
-  // ✅ DEBUG: Simple log like other pages
-  console.log("🔑 AdminDashboard - User:", user ? user.email : "No user");
-  console.log("🔑 User role:", user?.role);
+  // Fixed token getter - works with your auth architecture
+  getAuthToken: () => {
+    // Method 1: Direct from localStorage (most reliable)
+    let token = localStorage.getItem("token");
 
-  // ✅ SSE connection - let SSE hook handle token internally
-  console.log("📡 About to call useAdminSSE...");
-  const {
-    data: sseData,
-    connected: sseConnected,
-    error: sseError,
-    reconnect,
-  } = useAdminSSE(); // ← No token parameter
+    if (!token) {
+      // Method 2: Try auth store as fallback
+      const authStore = useAuthStore.getState();
+      token = authStore.token;
+    }
 
-  // ✅ DEBUG: Log SSE hook results
-  console.log("📡 SSE Hook results:", {
-    connected: sseConnected,
-    hasData: !!sseData,
-    error: sseError,
-  });
+    if (!token) {
+      console.error("❌ No token found in localStorage or auth store");
+      return null;
+    }
 
-  // Component states
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(null);
+    // Clean and validate token
+    token = token.trim();
 
-  // Data states (updated by SSE)
-  const [systemStatus, setSystemStatus] = useState(null);
-  const [queueStats, setQueueStats] = useState(null);
-  const [adminStats, setAdminStats] = useState(null);
+    // Remove quotes if accidentally added
+    if (token.startsWith('"') && token.endsWith('"')) {
+      token = token.slice(1, -1);
+    }
 
-  // Data states (updated manually)
-  const [recentClicks, setRecentClicks] = useState([]);
+    // Remove Bearer prefix if accidentally stored
+    if (token.startsWith("Bearer ")) {
+      token = token.substring(7);
+    }
 
-  // ✅ FALLBACK: Manual data loading for testing
-  const loadDataManually = async () => {
+    // Validate JWT format
+    const parts = token.split(".");
+    if (parts.length !== 3) {
+      console.error("❌ Invalid JWT format - Parts:", parts.length);
+      console.error("Token preview:", token.substring(0, 50) + "...");
+      return null;
+    }
+
+    console.log("✅ Valid token found, length:", token.length);
+    return token;
+  },
+
+  getAuthHeaders: () => {
+    const token = adminAPI.getAuthToken();
+
+    if (!token) {
+      throw new Error("No valid authentication token available");
+    }
+
+    return {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+  },
+
+  // Enhanced request method with your error handling
+  makeAuthenticatedRequest: async (endpoint, options = {}) => {
     try {
-      setLoading(true);
-      console.log("🔄 Loading data manually...");
+      const url = `${adminAPI.getBaseUrl()}${endpoint}`;
+      console.log("🌐 Making authenticated request to:", url);
 
-      const [statusRes, queueRes, statsRes] = await Promise.all([
-        apiClient.get("/api/admin/system-status"),
-        apiClient.get("/api/admin/queue-stats"),
-        apiClient.get("/api/admin/statistics"),
-      ]);
+      const headers = adminAPI.getAuthHeaders();
 
-      console.log("✅ Manual data loaded:", {
-        systemStatus: statusRes.data.data,
-        queueStats: queueRes.data.data,
-        adminStats: statsRes.data.data.statistics,
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          ...headers,
+          ...options.headers,
+        },
       });
 
-      setSystemStatus(statusRes.data.data);
-      setQueueStats(queueRes.data.data);
-      setAdminStats(statsRes.data.data.statistics);
-      setLastRefresh(new Date());
-      setLoading(false);
+      console.log("📡 Response status:", response.status, response.statusText);
 
-      notification.success({
-        message: "Data Loaded",
-        description: "Dashboard data loaded manually",
-      });
+      // Handle authentication errors based on your backend
+      if (response.status === 401) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error("❌ 401 Error data:", errorData);
+
+        // Handle your specific error codes
+        if (errorData?.code === "TOKEN_MALFORMED") {
+          console.error("❌ Token malformed - clearing auth");
+          localStorage.removeItem("token");
+          useAuthStore.getState().logout();
+          window.location.href = "/login";
+          throw new Error("Token format invalid - please login again");
+        } else if (errorData?.code === "TOKEN_EXPIRED") {
+          console.error("❌ Token expired - clearing auth");
+          localStorage.removeItem("token");
+          useAuthStore.getState().logout();
+          window.location.href = "/login";
+          throw new Error("Session expired - please login again");
+        } else if (errorData?.code === "TOKEN_REVOKED") {
+          console.error("❌ Token revoked - clearing auth");
+          localStorage.removeItem("token");
+          useAuthStore.getState().logout();
+          window.location.href = "/login";
+          throw new Error("Session revoked - please login again");
+        } else {
+          console.error("❌ General auth error - clearing auth");
+          localStorage.removeItem("token");
+          useAuthStore.getState().logout();
+          window.location.href = "/login";
+          throw new Error("Authentication failed - please login again");
+        }
+      }
+
+      if (response.status === 403) {
+        const errorData = await response.json().catch(() => ({}));
+        if (errorData?.code === "ADMIN_REQUIRED") {
+          throw new Error("Admin access required");
+        }
+        throw new Error("Access forbidden");
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("✅ Request successful for:", endpoint);
+      return data;
     } catch (error) {
-      console.error("❌ Manual data load failed:", error);
-      setLoading(false);
-      notification.error({
-        message: "Manual Load Failed",
-        description: error.message,
-      });
+      console.error("❌ Request failed:", error.message);
+      throw error;
     }
-  };
+  },
 
-  // ✅ Update data when SSE data arrives
-  useEffect(() => {
-    if (sseData) {
-      console.log("📊 Updating from SSE data:", sseData);
+  // API endpoints
+  getAdminStats: () => adminAPI.makeAuthenticatedRequest("/api/admin/stats"),
+  getSystemHealth: () => adminAPI.makeAuthenticatedRequest("/health"),
+  getQueueStatus: () =>
+    adminAPI.makeAuthenticatedRequest("/api/admin/queues/status"),
+  getPerformanceMetrics: () =>
+    adminAPI.makeAuthenticatedRequest("/api/admin/system/performance"),
+  getSecurityStatus: () =>
+    adminAPI.makeAuthenticatedRequest("/api/admin/security/status"),
+  getRecentActivity: (limit = 10) =>
+    adminAPI.makeAuthenticatedRequest(
+      `/api/admin/activity/recent?limit=${limit}`
+    ),
+};
 
-      // Update admin stats
-      if (sseData.statistics) {
-        setAdminStats(sseData.statistics);
-      }
-
-      // Update system status
-      if (sseData.services || sseData.performance) {
-        setSystemStatus({
-          services: sseData.services,
-          performance: sseData.performance,
-          serverInfo: sseData.serverInfo,
-          timestamp: sseData.timestamp,
-        });
-      }
-
-      // Update queue stats from system status
-      if (sseData.services?.queue?.stats) {
-        setQueueStats({
-          queues: sseData.services.queue.stats,
-          timestamp: sseData.timestamp,
-        });
-      }
-
-      setLastRefresh(new Date(sseData.timestamp));
-      setLoading(false);
-    }
-  }, [sseData]);
-
-  // ✅ Fetch only recent clicks (not covered by SSE)
-  const fetchRecentClicks = async () => {
-    try {
-      const clicksRes = await apiClient.get("/api/admin/recent-clicks");
-      const clicksData = clicksRes.data.data;
-      setRecentClicks(
-        Array.isArray(clicksData?.clicks) ? clicksData.clicks : []
-      );
-    } catch (error) {
-      console.error("Failed to fetch recent clicks:", error);
-    }
-  };
-
-  // ✅ Initial load - only for data not covered by SSE
-  useEffect(() => {
-    fetchRecentClicks();
-
-    // Fetch recent clicks every 30 seconds
-    const interval = setInterval(fetchRecentClicks, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // ✅ Auto-fallback if SSE doesn't work within 5 seconds
-  useEffect(() => {
-    const fallbackTimer = setTimeout(() => {
-      if (loading && !sseData && !adminStats) {
-        console.log("⚠️ SSE timeout - loading data manually");
-        loadDataManually();
-      }
-    }, 5000);
-
-    return () => clearTimeout(fallbackTimer);
-  }, [loading, sseData, adminStats]);
-
-  // ✅ Manual refresh function
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await fetchRecentClicks();
-      notification.success({
-        message: "Refreshed",
-        description: "Recent activity updated",
-      });
-    } catch (error) {
-      notification.error({
-        message: "Refresh Failed",
-        description: "Could not update recent activity",
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  // Render service status
-  const renderServiceStatus = (service, name) => {
-    const isConnected = service?.connected || service?.status === "Connected";
-    return (
-      <Tag
-        icon={isConnected ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
-        color={isConnected ? "success" : "error"}
-      >
-        {name}: {isConnected ? "Hoạt động" : "Lỗi"}
-      </Tag>
+// ==========================================
+// ENHANCED METRIC CARD COMPONENT
+// ==========================================
+const EnhancedMetricCard = ({
+  title,
+  value,
+  icon,
+  color = "#1890ff",
+  trend,
+  trendValue,
+  suffix,
+  prefix,
+  loading = false,
+  description,
+  status = "normal",
+}) => {
+  const getTrendIcon = () => {
+    if (!trend) return null;
+    return trend === "up" ? (
+      <ArrowUpOutlined style={{ color: "#52c41a", fontSize: "12px" }} />
+    ) : (
+      <ArrowDownOutlined style={{ color: "#f5222d", fontSize: "12px" }} />
     );
   };
 
-  // Recent clicks table columns
-  const clicksColumns = [
-    {
-      title: "Thời gian",
-      dataIndex: "timestamp",
-      key: "timestamp",
-      render: (timestamp) => new Date(timestamp).toLocaleString("vi-VN"),
-      width: 150,
-    },
-    {
-      title: "Short Code",
-      dataIndex: "shortCode",
-      key: "shortCode",
-      render: (code) => <Text code>{code}</Text>,
-    },
-    {
-      title: "IP Address",
-      dataIndex: "ipAddress",
-      key: "ipAddress",
-    },
-    {
-      title: "User Agent",
-      dataIndex: "userAgent",
-      key: "userAgent",
-      ellipsis: true,
-    },
-    {
-      title: "Country",
-      dataIndex: "country",
-      key: "country",
-      render: (country) => country || "Unknown",
-    },
-  ];
+  const getStatusColor = () => {
+    switch (status) {
+      case "success":
+        return "#52c41a";
+      case "warning":
+        return "#fadb14";
+      case "error":
+        return "#f5222d";
+      default:
+        return color;
+    }
+  };
 
-  // ✅ IMPROVED: Loading screen with debug info
-  if (loading && !adminStats) {
-    return (
-      <div style={{ textAlign: "center", padding: "50px" }}>
-        <DashboardOutlined style={{ fontSize: "48px", color: "#1890ff" }} />
-        <Title level={3}>Đang tải Admin Dashboard...</Title>
-        <div style={{ marginTop: "20px" }}>
-          <Space direction="vertical">
-            <Text type="secondary">
-              SSE: {sseConnected ? "🟢 Connected" : "🔴 Disconnected"} | User:{" "}
-              {user ? "✅" : "❌"} | Data: {sseData ? "✅" : "❌"}
+  return (
+    <Card
+      className="enhanced-metric-card"
+      hoverable
+      loading={loading}
+      style={{
+        borderRadius: "12px",
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      {/* Gradient Background Accent */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          width: "100px",
+          height: "100px",
+          background: `linear-gradient(135deg, ${getStatusColor()}15 0%, ${getStatusColor()}05 100%)`,
+          borderRadius: "50%",
+          transform: "translate(30px, -30px)",
+        }}
+      />
+
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            marginBottom: "12px",
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <Text
+              type="secondary"
+              style={{ fontSize: "12px", fontWeight: 500 }}
+            >
+              {title}
             </Text>
-            <Space>
-              <Button
-                type="primary"
-                onClick={loadDataManually}
-                loading={loading}
-              >
-                Load Data Manually
-              </Button>
-              <Button type="default" onClick={() => window.location.reload()}>
-                Reload Page
-              </Button>
-            </Space>
-          </Space>
+            {description && (
+              <div>
+                <Text type="secondary" style={{ fontSize: "11px" }}>
+                  {description}
+                </Text>
+              </div>
+            )}
+          </div>
+          <div
+            style={{
+              backgroundColor: `${getStatusColor()}10`,
+              borderRadius: "8px",
+              padding: "8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {React.cloneElement(icon, {
+              style: {
+                fontSize: "20px",
+                color: getStatusColor(),
+              },
+            })}
+          </div>
         </div>
+
+        {/* Main Value */}
+        <div style={{ marginBottom: "8px" }}>
+          <Statistic
+            value={value}
+            precision={typeof value === "number" && value % 1 !== 0 ? 2 : 0}
+            valueStyle={{
+              fontSize: "28px",
+              fontWeight: 700,
+              color: getStatusColor(),
+              lineHeight: 1,
+            }}
+            prefix={prefix}
+            suffix={suffix}
+          />
+        </div>
+
+        {/* Trend Indicator */}
+        {trend && trendValue && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "4px 8px",
+              backgroundColor: trend === "up" ? "#f6ffed" : "#fff2f0",
+              borderRadius: "6px",
+              border: `1px solid ${trend === "up" ? "#d9f7be" : "#ffccc7"}`,
+            }}
+          >
+            {getTrendIcon()}
+            <Text
+              style={{
+                fontSize: "12px",
+                color: trend === "up" ? "#52c41a" : "#f5222d",
+                fontWeight: 500,
+              }}
+            >
+              {trendValue}% vs last month
+            </Text>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+};
+
+// ==========================================
+// SYSTEM SERVICES CARD COMPONENT
+// ==========================================
+const SystemServicesCard = ({ services, loading }) => {
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "healthy":
+        return "#52c41a";
+      case "warning":
+        return "#fadb14";
+      case "error":
+        return "#f5222d";
+      default:
+        return "#d9d9d9";
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case "healthy":
+        return <CheckCircleOutlined />;
+      case "warning":
+        return <WarningOutlined />;
+      case "error":
+        return <ExclamationCircleOutlined />;
+      default:
+        return <ExclamationCircleOutlined />;
+    }
+  };
+
+  return (
+    <Card
+      title="System Services"
+      loading={loading}
+      size="small"
+      style={{ height: "100%" }}
+    >
+      <Space direction="vertical" style={{ width: "100%" }} size="small">
+        {Object.entries(services || {}).map(
+          ([serviceName, serviceData], index) => (
+            <div
+              key={index}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "8px 12px",
+                backgroundColor: "#fafafa",
+                borderRadius: "6px",
+                border: "1px solid #f0f0f0",
+              }}
+            >
+              <Space>
+                <ApiOutlined />
+                <div>
+                  <Text strong style={{ fontSize: "13px" }}>
+                    {serviceName}
+                  </Text>
+                  {serviceData.responseTime && (
+                    <div>
+                      <Text type="secondary" style={{ fontSize: "11px" }}>
+                        {serviceData.responseTime}ms
+                      </Text>
+                    </div>
+                  )}
+                </div>
+              </Space>
+              <Tag
+                color={getStatusColor(serviceData.status)}
+                icon={getStatusIcon(serviceData.status)}
+                style={{ margin: 0 }}
+              >
+                {serviceData.status}
+              </Tag>
+            </div>
+          )
+        )}
+      </Space>
+    </Card>
+  );
+};
+
+// ==========================================
+// MAIN ADMIN DASHBOARD COMPONENT
+// ==========================================
+const AdminDashboardPage = () => {
+  const [adminStats, setAdminStats] = useState(null);
+  const [systemStatus, setSystemStatus] = useState(null);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState("connecting");
+
+  // Get auth state from your store
+  const { user, isAuthenticated, logout } = useAuthStore();
+
+  // Check authentication and admin role on component mount
+  useEffect(() => {
+    console.log("🔐 Checking authentication state:", {
+      isAuthenticated,
+      userRole: user?.role,
+      userEmail: user?.email,
+    });
+
+    if (!isAuthenticated) {
+      console.error("❌ User not authenticated, redirecting to login");
+      window.location.href = "/login";
+      return;
+    }
+
+    if (user?.role !== "admin") {
+      console.error("❌ User is not admin, redirecting to dashboard");
+      window.location.href = "/dashboard";
+      return;
+    }
+
+    console.log("✅ User authenticated as admin, proceeding with dashboard");
+  }, [isAuthenticated, user]);
+
+  // Enhanced data fetching with better error handling
+  const fetchDashboardData = async () => {
+    if (!isAuthenticated || user?.role !== "admin") {
+      console.log("⚠️ Skipping data fetch - not authenticated or not admin");
+      return;
+    }
+
+    setLoading(true);
+    setConnectionStatus("loading");
+
+    try {
+      console.log("🔄 Fetching admin dashboard data...");
+
+      // Primary data - admin stats (most important)
+      const statsResponse = await adminAPI.getAdminStats();
+
+      if (statsResponse?.success) {
+        setAdminStats(statsResponse.data);
+        setConnectionStatus("connected");
+        setLastUpdated(new Date());
+
+        console.log("✅ Admin stats loaded:", statsResponse.data);
+
+        notificationService.notifySuccess({
+          message: "Dashboard Updated",
+          description: "Data refreshed successfully",
+          duration: 2,
+        });
+      } else {
+        throw new Error("Admin stats API returned success: false");
+      }
+
+      // Secondary data - fetch in parallel with error handling
+      const secondaryRequests = [
+        adminAPI
+          .getSystemHealth()
+          .catch((err) => ({ error: err.message, type: "health" })),
+        adminAPI
+          .getQueueStatus()
+          .catch((err) => ({ error: err.message, type: "queues" })),
+        adminAPI
+          .getPerformanceMetrics()
+          .catch((err) => ({ error: err.message, type: "performance" })),
+        adminAPI
+          .getSecurityStatus()
+          .catch((err) => ({ error: err.message, type: "security" })),
+        adminAPI
+          .getRecentActivity(5)
+          .catch((err) => ({ error: err.message, type: "activity" })),
+      ];
+
+      const results = await Promise.allSettled(secondaryRequests);
+
+      // Process secondary data results
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled" && result.value?.success) {
+          const data = result.value.data;
+          switch (index) {
+            case 0: // Health
+              setSystemStatus((prev) => ({ ...prev, services: data }));
+              break;
+            case 1: // Queues
+              setSystemStatus((prev) => ({ ...prev, queues: data.queues }));
+              break;
+            case 2: // Performance
+              setSystemStatus((prev) => ({ ...prev, performance: data }));
+              break;
+            case 3: // Security
+              setSystemStatus((prev) => ({ ...prev, security: data }));
+              break;
+            case 4: // Activity
+              setRecentActivity(data.activities || []);
+              break;
+          }
+        } else {
+          console.log(
+            `⚠️ Secondary request ${index} failed or returned no data`
+          );
+        }
+      });
+    } catch (error) {
+      console.error("❌ Dashboard data fetch error:", error.message);
+      setConnectionStatus("error");
+
+      // Handle authentication errors
+      if (
+        error.message.includes("login again") ||
+        error.message.includes("Authentication failed")
+      ) {
+        notificationService.notifyError({
+          message: "Session Expired",
+          description: "Please login again to continue",
+          duration: 4,
+        });
+        return; // Don't show additional error notification
+      }
+
+      notificationService.notifyError({
+        message: "Dashboard Error",
+        description: `Failed to fetch data: ${error.message}`,
+        duration: 4,
+      });
+
+      // Set minimal fallback data
+      setAdminStats({
+        users: { total: 0, active: 0, growth: 0 },
+        links: { total: 0, growth: 0 },
+        analytics: { todayClicks: 0, growth: 0 },
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initialize dashboard
+  useEffect(() => {
+    if (isAuthenticated && user?.role === "admin") {
+      fetchDashboardData();
+
+      // Set up auto-refresh every 30 seconds
+      const refreshInterval = setInterval(() => {
+        fetchDashboardData();
+      }, 30000);
+
+      return () => clearInterval(refreshInterval);
+    }
+  }, [isAuthenticated, user]);
+
+  // Show loading state
+  if (!isAuthenticated) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <Space>
+          <Spin size="large" />
+          <Text>Checking authentication...</Text>
+        </Space>
+      </div>
+    );
+  }
+
+  // Show access denied
+  if (user?.role !== "admin") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+        }}
+      >
+        <Result
+          status="403"
+          title="403"
+          subTitle="Admin access required"
+          extra={
+            <Button
+              type="primary"
+              onClick={() => (window.location.href = "/dashboard")}
+            >
+              Go to Dashboard
+            </Button>
+          }
+        />
       </div>
     );
   }
 
   return (
-    <div className="admin-content" style={{ padding: "24px" }}>
-      {/* ✅ Real-time Status & Controls */}
-      <Card
-        size="small"
+    <div style={{ padding: "24px", background: "#f5f5f5", minHeight: "100vh" }}>
+      {/* Header */}
+      <div
         style={{
-          marginBottom: "16px",
-          background: sseConnected ? "#f6ffed" : "#fff2e8",
-          border: `1px solid ${sseConnected ? "#b7eb8f" : "#ffd591"}`,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "24px",
         }}
-        bodyStyle={{ padding: "12px 16px" }}
       >
-        <Space split={<Divider type="vertical" />}>
-          <Space>
-            <Text strong>
-              {sseConnected
-                ? "🟢 Real-time: CONNECTED"
-                : "🟡 Real-time: DISCONNECTED"}
+        <div>
+          <Title level={2} style={{ margin: 0, color: "#262626" }}>
+            Admin Dashboard
+          </Title>
+          <Text type="secondary">
+            Welcome, {user?.name || user?.email} •{" "}
+            {adminStats?.users?.total || 0} users •{" "}
+            {adminStats?.links?.total || 0} links
+          </Text>
+        </div>
+        <Space>
+          <Badge
+            status={
+              connectionStatus === "connected"
+                ? "processing"
+                : connectionStatus === "loading"
+                ? "default"
+                : "error"
+            }
+            text={
+              connectionStatus === "connected"
+                ? "Connected"
+                : connectionStatus === "loading"
+                ? "Loading..."
+                : "Connection Error"
+            }
+          />
+          {lastUpdated && (
+            <Text type="secondary" style={{ fontSize: "12px" }}>
+              Updated: {lastUpdated.toLocaleTimeString()}
             </Text>
-            {sseError && (
-              <Text type="danger" style={{ fontSize: "12px" }}>
-                Error: {sseError}
-              </Text>
-            )}
-          </Space>
-
-          {lastRefresh && (
-            <Space>
-              <Text type="secondary">
-                Last updated: {lastRefresh.toLocaleTimeString("vi-VN")}
-              </Text>
-            </Space>
           )}
-
           <Button
-            type="primary"
             icon={<ReloadOutlined />}
-            loading={refreshing}
-            onClick={handleRefresh}
-            size="small"
+            onClick={fetchDashboardData}
+            loading={loading}
           >
-            Refresh Activity
-          </Button>
-
-          {!sseConnected && (
-            <Button type="default" onClick={reconnect} size="small">
-              Reconnect
-            </Button>
-          )}
-
-          <Button type="default" onClick={loadDataManually} size="small">
-            Manual Load
+            Refresh
           </Button>
         </Space>
-      </Card>
+      </div>
 
-      {/* System Status Alert */}
+      {/* Status Alert */}
       <Alert
-        message="Trạng thái hệ thống"
-        description={
-          <Space wrap>
-            {systemStatus?.services && (
-              <>
-                {renderServiceStatus(
-                  systemStatus.services.elasticsearch,
-                  "ElasticSearch"
-                )}
-                {renderServiceStatus(systemStatus.services.redis, "Redis")}
-                {renderServiceStatus(systemStatus.services.queue, "Queue")}
-              </>
+        message={
+          <Space>
+            <Text strong>System Status:</Text>
+            {connectionStatus === "connected" ? (
+              <Text type="success">🟢 Connected as {user?.email}</Text>
+            ) : connectionStatus === "loading" ? (
+              <Text>🔄 Loading dashboard data...</Text>
+            ) : (
+              <Text type="warning">🟡 Connection issues detected</Text>
             )}
           </Space>
         }
-        type="info"
+        type={
+          connectionStatus === "connected"
+            ? "success"
+            : connectionStatus === "loading"
+            ? "info"
+            : "warning"
+        }
         showIcon
-        style={{ marginBottom: "24px" }}
+        style={{ marginBottom: "24px", borderRadius: "8px" }}
       />
 
-      {/* Statistics Cards */}
-      <Row gutter={[16, 16]} style={{ marginBottom: "24px" }}>
+      {/* Main Statistics Cards */}
+      <Row gutter={[24, 24]} style={{ marginBottom: "24px" }}>
         <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Tổng Users"
-              value={adminStats?.totalUsers || 0}
-              prefix={<UserOutlined />}
-              valueStyle={{ color: "#3f8600" }}
-              loading={!adminStats}
-            />
-          </Card>
+          <EnhancedMetricCard
+            title="Total Users"
+            value={adminStats?.users?.total || 0}
+            icon={<UserOutlined />}
+            color="#1890ff"
+            trend={adminStats?.users?.growth > 0 ? "up" : "down"}
+            trendValue={adminStats?.users?.growth}
+            loading={loading}
+            description="Registered users"
+            status="success"
+          />
         </Col>
-
         <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Tổng Links"
-              value={adminStats?.totalLinks || 0}
-              prefix={<LinkOutlined />}
-              valueStyle={{ color: "#1890ff" }}
-              loading={!adminStats}
-            />
-          </Card>
+          <EnhancedMetricCard
+            title="Total Links"
+            value={adminStats?.links?.total || 0}
+            icon={<LinkOutlined />}
+            color="#722ed1"
+            trend={adminStats?.links?.growth > 0 ? "up" : "down"}
+            trendValue={adminStats?.links?.growth}
+            loading={loading}
+            description="Shortened links"
+            status="normal"
+          />
         </Col>
-
         <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Clicks hôm nay"
-              value={adminStats?.todayClicks || 0}
-              prefix={<EyeOutlined />}
-              valueStyle={{ color: "#722ed1" }}
-              loading={!adminStats}
-            />
-          </Card>
+          <EnhancedMetricCard
+            title="Today's Clicks"
+            value={adminStats?.analytics?.todayClicks || 0}
+            icon={<EyeOutlined />}
+            color="#13c2c2"
+            trend={adminStats?.analytics?.growth > 0 ? "up" : "down"}
+            trendValue={adminStats?.analytics?.growth}
+            loading={loading}
+            description="24h activity"
+            status={
+              adminStats?.analytics?.todayClicks > 0 ? "success" : "warning"
+            }
+          />
         </Col>
-
         <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Uptime"
-              value={(() => {
-                const uptimeSeconds = systemStatus?.performance?.uptime || 0;
-                const days = Math.floor(uptimeSeconds / (24 * 3600));
-                const hours = Math.floor((uptimeSeconds % (24 * 3600)) / 3600);
-                const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-                return `${days}D ${hours}H ${minutes}M`;
-              })()}
-              prefix={<ClockCircleOutlined />}
-              valueStyle={{ color: "#cf1322" }}
-              loading={!systemStatus}
-            />
-          </Card>
+          <EnhancedMetricCard
+            title="Active Users"
+            value={adminStats?.users?.active || 0}
+            icon={<TeamOutlined />}
+            color="#52c41a"
+            loading={loading}
+            description="Currently online"
+            status="success"
+          />
         </Col>
       </Row>
 
-      {/* System Performance */}
+      {/* System Status Row */}
       <Row gutter={[16, 16]} style={{ marginBottom: "24px" }}>
         <Col xs={24} lg={12}>
-          <Card title="Hiệu suất hệ thống" extra={<WarningOutlined />}>
-            {systemStatus?.performance && (
-              <Space direction="vertical" style={{ width: "100%" }}>
-                {/* Memory Usage */}
-                <div>
-                  <Text strong>Bộ nhớ (Memory):</Text>
-                  <Progress
-                    percent={Math.round(
-                      (systemStatus.performance.memory.heapUsed /
-                        systemStatus.performance.memory.heapTotal) *
-                        100
-                    )}
-                    status={
-                      systemStatus.performance.memory.heapUsed /
-                        systemStatus.performance.memory.heapTotal >
-                      0.8
-                        ? "exception"
-                        : systemStatus.performance.memory.heapUsed /
-                            systemStatus.performance.memory.heapTotal >
-                          0.6
-                        ? "active"
-                        : "success"
-                    }
-                    format={(percent) => `${percent}%`}
-                  />
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#666",
-                      marginTop: "4px",
-                    }}
-                  >
-                    <Text>
-                      Heap Used:{" "}
-                      <Text code>
-                        {Math.round(
-                          systemStatus.performance.memory.heapUsed / 1024 / 1024
-                        )}
-                        MB
-                      </Text>
-                    </Text>{" "}
-                    /
-                    <Text>
-                      {" "}
-                      Total:{" "}
-                      <Text code>
-                        {Math.round(
-                          systemStatus.performance.memory.heapTotal /
-                            1024 /
-                            1024
-                        )}
-                        MB
-                      </Text>
-                    </Text>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#666" }}>
-                    <Text>
-                      RSS:{" "}
-                      <Text code>
-                        {Math.round(
-                          systemStatus.performance.memory.rss / 1024 / 1024
-                        )}
-                        MB
-                      </Text>
-                    </Text>{" "}
-                    |
-                    <Text>
-                      {" "}
-                      External:{" "}
-                      <Text code>
-                        {Math.round(
-                          systemStatus.performance.memory.external / 1024 / 1024
-                        )}
-                        MB
-                      </Text>
-                    </Text>
-                  </div>
-                </div>
-
-                {/* CPU Usage */}
-                <div>
-                  <Text strong>CPU Usage:</Text>
-                  <div style={{ marginTop: "8px" }}>
-                    <Text>
-                      User Time:{" "}
-                      <Text code>
-                        {Math.round(systemStatus.performance.cpu.user / 1000)}ms
-                      </Text>
-                    </Text>
-                    <br />
-                    <Text>
-                      System Time:{" "}
-                      <Text code>
-                        {Math.round(systemStatus.performance.cpu.system / 1000)}
-                        ms
-                      </Text>
-                    </Text>
-                  </div>
-                </div>
-
-                {/* Uptime Detail */}
-                <div>
-                  <Text strong>Uptime chi tiết:</Text>
-                  <div style={{ marginTop: "4px" }}>
-                    <Text code>
-                      {Math.floor(systemStatus.performance.uptime / 86400)} ngày{" "}
-                      {Math.floor(
-                        (systemStatus.performance.uptime % 86400) / 3600
-                      )}{" "}
-                      giờ{" "}
-                      {Math.floor(
-                        (systemStatus.performance.uptime % 3600) / 60
-                      )}{" "}
-                      phút {Math.floor(systemStatus.performance.uptime % 60)}{" "}
-                      giây
-                    </Text>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#666" }}>
-                    Started:{" "}
-                    {new Date(
-                      Date.now() - systemStatus.performance.uptime * 1000
-                    ).toLocaleString("vi-VN")}
-                  </div>
-                </div>
-
-                {/* Server Info */}
-                {systemStatus?.serverInfo && (
-                  <div>
-                    <Text strong>Server Info:</Text>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        marginTop: "4px",
-                      }}
-                    >
-                      <Text>
-                        Node:{" "}
-                        <Text code>{systemStatus.serverInfo.nodeVersion}</Text>
-                      </Text>{" "}
-                      |
-                      <Text>
-                        {" "}
-                        Platform:{" "}
-                        <Text code>{systemStatus.serverInfo.platform}</Text>
-                      </Text>
-                    </div>
-                    <div style={{ fontSize: "12px", color: "#666" }}>
-                      <Text>
-                        PID: <Text code>{systemStatus.serverInfo.pid}</Text>
-                      </Text>{" "}
-                      |
-                      <Text>
-                        {" "}
-                        Env:{" "}
-                        <Text code>{systemStatus.serverInfo.environment}</Text>
-                      </Text>
-                    </div>
-                  </div>
-                )}
-              </Space>
-            )}
-          </Card>
+          <SystemServicesCard
+            services={systemStatus?.services || {}}
+            loading={loading}
+          />
         </Col>
-
         <Col xs={24} lg={12}>
           <Card
-            title="Queue Statistics"
-            extra={
-              sseConnected ? (
-                <Text type="success">🔄 Live</Text>
-              ) : (
-                <Text type="warning">📴 Offline</Text>
-              )
-            }
+            title="Recent Activity"
+            loading={loading}
+            style={{ height: "100%" }}
           >
-            {queueStats?.queues ? (
-              <Space direction="vertical" style={{ width: "100%" }}>
-                {Object.entries(queueStats.queues).map(([queueName, stats]) => {
-                  // Skip non-queue properties
-                  if (
-                    typeof stats !== "object" ||
-                    queueName === "batchSize" ||
-                    queueName === "processInterval" ||
-                    queueName === "isInitialized"
-                  ) {
-                    return null;
-                  }
-
-                  return (
-                    <div key={queueName}>
-                      <Text strong style={{ textTransform: "capitalize" }}>
-                        {queueName.replace(/([A-Z])/g, " $1")}:
-                      </Text>
-                      <br />
+            {recentActivity.length > 0 ? (
+              <Table
+                columns={[
+                  {
+                    title: "Link",
+                    dataIndex: "shortCode",
+                    key: "shortCode",
+                    render: (code) => <Tag color="blue">{code}</Tag>,
+                  },
+                  {
+                    title: "User",
+                    dataIndex: "user",
+                    key: "user",
+                    render: (user) => (
                       <Space>
-                        <Text>
-                          Waiting: <Text code>{stats.waiting || 0}</Text>
-                        </Text>
-                        <Text>
-                          Active: <Text code>{stats.active || 0}</Text>
-                        </Text>
-                        <Text>
-                          Completed: <Text code>{stats.completed || 0}</Text>
-                        </Text>
-                        <Text>
-                          Failed:{" "}
-                          <Text code type="danger">
-                            {stats.failed || 0}
-                          </Text>
-                        </Text>
+                        <Avatar size="small" icon={<UserOutlined />} />
+                        <Text style={{ fontSize: "12px" }}>{user}</Text>
                       </Space>
-                    </div>
-                  );
-                })}
-              </Space>
+                    ),
+                  },
+                ]}
+                dataSource={recentActivity}
+                rowKey="id"
+                pagination={false}
+                size="small"
+              />
             ) : (
-              <Text type="secondary">Không có dữ liệu queue</Text>
+              <Empty
+                description="No recent activity"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
             )}
           </Card>
         </Col>
       </Row>
 
-      {/* Recent Activity */}
-      <Card
-        title="Hoạt động gần đây"
-        extra={
-          <Space>
-            <Text type="secondary" style={{ fontSize: "12px" }}>
-              {recentClicks.length > 0
-                ? `${recentClicks.length} activities`
-                : "No recent activity"}
-            </Text>
-            <Button
-              size="small"
-              onClick={() => (window.location.href = "/admin/analytics")}
-            >
-              Xem tất cả
-            </Button>
-          </Space>
-        }
-      >
-        <Table
-          columns={clicksColumns}
-          dataSource={Array.isArray(recentClicks) ? recentClicks : []}
-          rowKey={(record, index) => record.id || `click-${index}`}
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 800 }}
-          size="small"
-          locale={{
-            emptyText: "Chưa có hoạt động nào",
-          }}
-        />
-      </Card>
-
-      <Divider />
-
       {/* Quick Actions */}
-      <Card
-        title="Thao tác nhanh"
-        extra={
-          <Space>
-            <Text type="secondary" style={{ fontSize: "12px" }}>
-              {sseConnected
-                ? "🟢 Real-time monitoring active"
-                : "🔴 Manual mode only"}
-            </Text>
-          </Space>
-        }
-      >
-        <Space wrap>
+      <Card title="Quick Actions" style={{ borderRadius: "12px" }}>
+        <Space wrap size="middle">
           <Button
             type="primary"
+            className="admin-btn-primary"
+            icon={<TeamOutlined />}
             onClick={() => (window.location.href = "/admin/users")}
           >
-            Quản lý Users
+            Manage Users
           </Button>
-          <Button onClick={() => (window.location.href = "/admin/links")}>
-            Kiểm duyệt Links
+          <Button
+            icon={<LinkOutlined />}
+            onClick={() => (window.location.href = "/admin/links")}
+          >
+            Review Links
           </Button>
-          <Button onClick={() => (window.location.href = "/admin/analytics")}>
-            Xem Analytics
+          <Button
+            icon={<MonitorOutlined />}
+            onClick={() => (window.location.href = "/admin/analytics")}
+          >
+            View Analytics
           </Button>
-          <Button onClick={() => (window.location.href = "/admin/system")}>
-            Cài đặt hệ thống
+          <Button
+            icon={<DatabaseOutlined />}
+            onClick={() => (window.location.href = "/admin/system")}
+          >
+            System Settings
+          </Button>
+          <Button
+            icon={<SecurityScanOutlined />}
+            onClick={() => {
+              /* Navigate to security logs */
+            }}
+          >
+            Security Logs
+          </Button>
+          <Button
+            icon={<ThunderboltOutlined />}
+            onClick={() => {
+              /* Navigate to queue management */
+            }}
+          >
+            Queue Manager
           </Button>
         </Space>
       </Card>

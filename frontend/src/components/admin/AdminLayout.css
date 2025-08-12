@@ -1,206 +1,332 @@
-/* frontend/src/components/admin/AdminLayout.css */
+/* Enhanced Admin Layout CSS - Step 1: Professional Color Scheme */
 
-/* Admin Menu Styling */
-.admin-menu .ant-menu-item {
-  margin: 4px 8px !important;
-  border-radius: 6px !important;
-  transition: all 0.3s ease;
+/* ========================================
+   CSS VARIABLES - PROFESSIONAL THEME
+======================================== */
+:root {
+  /* Primary Colors - Modern Blue Theme */
+  --admin-primary: #1890ff;
+  --admin-primary-dark: #0050b3;
+  --admin-primary-light: #40a9ff;
+  --admin-primary-bg: rgba(24, 144, 255, 0.1);
+
+  /* Secondary Colors - Purple Accent */
+  --admin-secondary: #722ed1;
+  --admin-secondary-dark: #531dab;
+  --admin-secondary-light: #9254de;
+  --admin-secondary-bg: rgba(114, 46, 209, 0.1);
+
+  /* Status Colors */
+  --admin-success: #52c41a;
+  --admin-warning: #fadb14;
+  --admin-error: #f5222d;
+  --admin-info: #13c2c2;
+
+  /* Neutral Colors */
+  --admin-dark: #001529;
+  --admin-gray-1: #fafafa;
+  --admin-gray-2: #f5f5f5;
+  --admin-gray-3: #f0f0f0;
+  --admin-gray-4: #d9d9d9;
+  --admin-gray-5: #bfbfbf;
+  --admin-gray-6: #8c8c8c;
+  --admin-gray-7: #595959;
+  --admin-gray-8: #434343;
+  --admin-gray-9: #262626;
+  --admin-gray-10: #1f1f1f;
+
+  /* Gradients */
+  --admin-gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --admin-gradient-secondary: linear-gradient(135deg, #1890ff 0%, #722ed1 100%);
+  --admin-gradient-success: linear-gradient(135deg, #52c41a 0%, #389e0d 100%);
+  --admin-gradient-warning: linear-gradient(135deg, #fadb14 0%, #d48806 100%);
+
+  /* Shadows */
+  --admin-shadow-1: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --admin-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --admin-shadow-3: 0 6px 16px rgba(0, 0, 0, 0.12);
+  --admin-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+  /* Border Radius */
+  --admin-radius-sm: 4px;
+  --admin-radius-md: 8px;
+  --admin-radius-lg: 12px;
+  --admin-radius-xl: 16px;
+
+  /* Transitions */
+  --admin-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --admin-transition-fast: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.admin-menu .ant-menu-item:hover {
-  background-color: rgba(250, 173, 20, 0.1) !important;
-  color: #faad14 !important;
+/* ========================================
+   ADMIN LAYOUT IMPROVEMENTS
+======================================== */
+
+/* Main Layout */
+.admin-layout {
+  background: var(--admin-gray-1);
+  min-height: 100vh;
 }
 
-.admin-menu .ant-menu-item-selected {
-  background-color: rgba(250, 173, 20, 0.15) !important;
-  color: #faad14 !important;
-  font-weight: 600;
+.admin-layout .ant-layout-sider {
+  box-shadow: var(--admin-shadow-2);
+  border-right: 1px solid var(--admin-gray-3);
+  background: #ffffff !important;
 }
 
-.admin-menu .ant-menu-item-selected::after {
-  border-right-color: #faad14 !important;
-}
+/* ========================================
+   SIDEBAR ENHANCEMENTS
+======================================== */
 
-/* Admin menu group labels */
-.admin-menu .ant-menu-item-group-title {
-  color: #8c8c8c !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  padding: 8px 16px !important;
-  margin: 8px 0 4px 0 !important;
-}
-
-/* Admin menu divider */
-.admin-menu .ant-menu-item-divider {
-  margin: 8px 16px !important;
-  border-color: #f0f0f0 !important;
-}
-
-/* Hover effects for admin items */
-.admin-menu .ant-menu-item[data-admin="true"] {
-  color: #faad14 !important;
-}
-
-.admin-menu .ant-menu-item[data-admin="true"]:hover {
-  background-color: rgba(250, 173, 20, 0.1) !important;
-  color: #d48806 !important;
-}
-
-/* Sider collapsed state */
-.ant-layout-sider-collapsed .admin-menu .ant-menu-item {
-  padding: 0 calc(50% - 8px) !important;
-}
-
-/* Admin header gradient */
+/* Admin Logo/Header */
 .admin-header-gradient {
-  background: linear-gradient(135deg, #faad14 0%, #ff7875 100%);
-}
-
-/* Admin sidebar custom scrollbar */
-.ant-layout-sider-children::-webkit-scrollbar {
-  width: 4px;
-}
-
-.ant-layout-sider-children::-webkit-scrollbar-track {
-  background: #f1f1f1;
-}
-
-.ant-layout-sider-children::-webkit-scrollbar-thumb {
-  background: #faad14;
-  border-radius: 2px;
-}
-
-.ant-layout-sider-children::-webkit-scrollbar-thumb:hover {
-  background: #d48806;
-}
-
-/* Admin content area styling */
-.admin-content {
-  padding: 24px;
-}
-
-.admin-content .ant-card {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  border-radius: 8px;
-  border: 1px solid #f0f0f0;
-}
-
-.admin-content .ant-card-head {
-  border-bottom: 1px solid #f0f0f0;
-  background: #fafafa;
-}
-
-/* Admin status indicators */
-.admin-status-online {
-  color: #52c41a;
-}
-
-.admin-status-offline {
-  color: #ff4d4f;
-}
-
-.admin-status-warning {
-  color: #faad14;
-}
-
-/* Admin metrics cards */
-.admin-metric-card {
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
-  transition: all 0.3s ease;
-}
-
-.admin-metric-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-}
-
-/* Admin table styling */
-.admin-table .ant-table-thead > tr > th {
-  background-color: #fafafa;
-  color: #262626;
-  font-weight: 600;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.admin-table .ant-table-tbody > tr:hover > td {
-  background-color: rgba(250, 173, 20, 0.03);
-}
-
-/* Admin buttons */
-.admin-btn-primary {
-  background: linear-gradient(135deg, #faad14 0%, #d48806 100%);
-  border-color: #faad14;
-  color: white;
-  transition: all 0.3s ease;
-}
-
-.admin-btn-primary:hover {
-  background: linear-gradient(135deg, #d48806 0%, #ad6800 100%);
-  border-color: #d48806;
-  color: white;
-  transform: translateY(-1px);
-}
-
-/* Admin danger buttons */
-.admin-btn-danger {
-  background: linear-gradient(135deg, #ff7875 0%, #ff4d4f 100%);
-  border-color: #ff7875;
-  color: white;
-}
-
-.admin-btn-danger:hover {
-  background: linear-gradient(135deg, #ff4d4f 0%, #d9363e 100%);
-  border-color: #ff4d4f;
-  color: white;
-  transform: translateY(-1px);
-}
-
-/* Admin header responsive fixes */
-.admin-layout .ant-layout-header {
-  height: 64px !important;
-  line-height: 64px !important;
-  padding: 0 16px !important;
-}
-
-.admin-layout .ant-layout-header .ant-space {
-  align-items: center !important;
-}
-
-/* Fix breadcrumb overflow */
-.admin-breadcrumb {
-  max-width: 200px;
+  background: var(--admin-gradient-primary) !important;
+  position: relative;
   overflow: hidden;
 }
 
-.admin-breadcrumb .ant-typography {
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+.admin-header-gradient::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    transparent 100%
+  );
+  pointer-events: none;
 }
 
-/* Responsive header adjustments */
+/* Admin Menu Styling */
+.admin-menu {
+  border: none !important;
+  background: transparent !important;
+  padding: 8px;
+}
+
+.admin-menu .ant-menu-item {
+  margin: 4px 0 !important;
+  border-radius: var(--admin-radius-md) !important;
+  transition: var(--admin-transition);
+  border: none !important;
+  height: auto !important;
+  line-height: normal !important;
+  padding: 12px 16px !important;
+}
+
+.admin-menu .ant-menu-item:hover {
+  background: var(--admin-primary-bg) !important;
+  color: var(--admin-primary) !important;
+  transform: translateX(4px);
+}
+
+.admin-menu .ant-menu-item-selected {
+  background: var(--admin-primary) !important;
+  color: white !important;
+  font-weight: 600;
+  box-shadow: var(--admin-shadow-1);
+}
+
+.admin-menu .ant-menu-item-selected::after {
+  display: none !important;
+}
+
+.admin-menu .ant-menu-item-selected .anticon {
+  color: white !important;
+}
+
+/* Menu Group Labels */
+.admin-menu .ant-menu-item-group-title {
+  color: var(--admin-gray-6) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  padding: 16px 16px 8px 16px !important;
+  margin: 16px 0 4px 0 !important;
+}
+
+/* Menu Divider */
+.admin-menu .ant-menu-item-divider {
+  margin: 16px 0 !important;
+  border-color: var(--admin-gray-3) !important;
+}
+
+/* ========================================
+   CUSTOM SCROLLBAR
+======================================== */
+.ant-layout-sider-children::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ant-layout-sider-children::-webkit-scrollbar-track {
+  background: var(--admin-gray-2);
+  border-radius: 3px;
+}
+
+.ant-layout-sider-children::-webkit-scrollbar-thumb {
+  background: var(--admin-primary);
+  border-radius: 3px;
+  transition: var(--admin-transition);
+}
+
+.ant-layout-sider-children::-webkit-scrollbar-thumb:hover {
+  background: var(--admin-primary-dark);
+}
+
+/* ========================================
+   HEADER IMPROVEMENTS
+======================================== */
+.admin-layout .ant-layout-header {
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--admin-gray-3) !important;
+  box-shadow: var(--admin-shadow-1) !important;
+  height: 64px !important;
+  line-height: 64px !important;
+  padding: 0 24px !important;
+}
+
+/* ========================================
+   CONTENT AREA
+======================================== */
+.admin-layout .ant-layout-content {
+  background: var(--admin-gray-1);
+  padding: 24px;
+  overflow-x: hidden;
+}
+
+/* ========================================
+   CARD IMPROVEMENTS
+======================================== */
+.admin-content .ant-card {
+  border-radius: var(--admin-radius-md);
+  border: 1px solid var(--admin-gray-3);
+  box-shadow: var(--admin-shadow-1);
+  transition: var(--admin-transition);
+  background: #ffffff;
+}
+
+.admin-content .ant-card:hover {
+  box-shadow: var(--admin-shadow-2);
+  transform: translateY(-2px);
+}
+
+.admin-content .ant-card-head {
+  border-bottom: 1px solid var(--admin-gray-3);
+  background: var(--admin-gray-1);
+  border-radius: var(--admin-radius-md) var(--admin-radius-md) 0 0;
+}
+
+.admin-content .ant-card-head-title {
+  font-weight: 600;
+  color: var(--admin-gray-9);
+}
+
+/* ========================================
+   BUTTON IMPROVEMENTS
+======================================== */
+.admin-btn-primary {
+  background: var(--admin-gradient-primary);
+  border: none;
+  color: white;
+  border-radius: var(--admin-radius-md);
+  font-weight: 500;
+  transition: var(--admin-transition);
+  box-shadow: var(--admin-shadow-1);
+}
+
+.admin-btn-primary:hover,
+.admin-btn-primary:focus {
+  background: var(--admin-primary-dark) !important;
+  color: white !important;
+  transform: translateY(-2px);
+  box-shadow: var(--admin-shadow-hover) !important;
+  border: none !important;
+}
+
+.admin-btn-secondary {
+  background: var(--admin-gradient-secondary);
+  border: none;
+  color: white;
+  border-radius: var(--admin-radius-md);
+  font-weight: 500;
+  transition: var(--admin-transition);
+}
+
+.admin-btn-danger {
+  background: var(--admin-error);
+  border: none;
+  color: white;
+  border-radius: var(--admin-radius-md);
+  transition: var(--admin-transition);
+}
+
+.admin-btn-danger:hover {
+  background: #cf1322 !important;
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: var(--admin-shadow-2);
+}
+
+/* ========================================
+   STATUS INDICATORS
+======================================== */
+.admin-status-online {
+  color: var(--admin-success);
+}
+
+.admin-status-offline {
+  color: var(--admin-gray-6);
+}
+
+.admin-status-warning {
+  color: var(--admin-warning);
+}
+
+.admin-status-error {
+  color: var(--admin-error);
+}
+
+/* ========================================
+   RESPONSIVE DESIGN
+======================================== */
 @media (max-width: 768px) {
   .admin-layout .ant-layout-header {
-    padding: 0 12px !important;
+    padding: 0 16px !important;
   }
-  
-  .admin-breadcrumb {
-    max-width: 120px;
+
+  .admin-layout .ant-layout-content {
+    padding: 16px;
   }
-  
-  .admin-layout .ant-space {
-    gap: 8px !important;
+
+  .admin-menu .ant-menu-item {
+    padding: 8px 12px !important;
+  }
+
+  .admin-menu .ant-menu-item-group-title {
+    padding: 12px 12px 6px 12px !important;
   }
 }
 
-/* Dark theme support */
-[data-theme='dark'] .admin-menu .ant-menu-item-selected {
-  background-color: rgba(250, 173, 20, 0.2) !important;
+/* ========================================
+   UTILITY CLASSES
+======================================== */
+.admin-gradient-text {
+  background: var(--admin-gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 600;
 }
 
-[data-theme='dark'] .admin-header-gradient {
-  background: linear-gradient(135deg, #d48806 0%, #d9363e 100%);
+.admin-shadow-hover {
+  transition: var(--admin-transition);
+}
+
+.admin-shadow-hover:hover {
+  box-shadow: var(--admin-shadow-hover);
+  transform: translateY(-2px);
 }

@@ -1,17 +1,17 @@
 // frontend/src/components/SmartRegistrationModal.js - FIXED VERSION
-import React, { useState, useEffect } from 'react';
-import { 
-  Modal, 
-  Form, 
-  Input, 
-  Button, 
-  Typography, 
+import React, { useState, useEffect } from "react";
+import {
+  Modal,
+  Form,
+  Input,
+  Button,
+  Typography,
   Space,
   Alert,
   Progress,
   Steps,
-  Checkbox
-} from 'antd';
+  Checkbox,
+} from "antd";
 import {
   UserOutlined,
   LockOutlined,
@@ -21,12 +21,12 @@ import {
   SafetyOutlined,
   RocketOutlined,
   EyeOutlined,
-  EyeInvisibleOutlined
-} from '@ant-design/icons';
-import useAuthStore from '../stores/authStore';
-import notificationService from '../services/notificationService';
-import { ERROR_CODES } from '../constants/errorCodes';
-import './SmartRegistrationModal.less';
+  EyeInvisibleOutlined,
+} from "@ant-design/icons";
+import useAuthStore from "../stores/authStore";
+import notificationService from "../services/notificationService";
+import { ERROR_CODES } from "../constants/errorCodes";
+import "./SmartRegistrationModal.less";
 
 const { Title, Text } = Typography;
 const { Step } = Steps;
@@ -34,31 +34,34 @@ const { Step } = Steps;
 // ✅ FIX: Unified validation rules (same as RegisterPage)
 const VALIDATION_RULES = {
   name: [
-    { required: true, message: 'Vui lòng nhập họ tên!' },
-    { min: 2, message: 'Họ tên phải có ít nhất 2 ký tự!' },
-    { max: 50, message: 'Họ tên không được quá 50 ký tự!' },
-    { pattern: /^[a-zA-ZÀ-ỹ\s]+$/, message: 'Họ tên chỉ được chứa chữ cái và khoảng trắng!' }
+    { required: true, message: "Vui lòng nhập họ tên!" },
+    { min: 2, message: "Họ tên phải có ít nhất 2 ký tự!" },
+    { max: 50, message: "Họ tên không được quá 50 ký tự!" },
+    {
+      pattern: /^[a-zA-ZÀ-ỹ\s]+$/,
+      message: "Họ tên chỉ được chứa chữ cái và khoảng trắng!",
+    },
   ],
   email: [
-    { required: true, message: 'Email là bắt buộc!' },
-    { type: 'email', message: 'Định dạng email không hợp lệ!' }
+    { required: true, message: "Email là bắt buộc!" },
+    { type: "email", message: "Định dạng email không hợp lệ!" },
   ],
   password: [
-    { required: true, message: 'Vui lòng nhập mật khẩu!' },
-    { min: 8, message: 'Mật khẩu phải có ít nhất 8 ký tự!' },
-    { 
-      pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 
-      message: 'Mật khẩu phải có ít nhất 1 chữ hoa, 1 chữ thường và 1 số!' 
-    }
-  ]
+    { required: true, message: "Vui lòng nhập mật khẩu!" },
+    { min: 8, message: "Mật khẩu phải có ít nhất 8 ký tự!" },
+    {
+      pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+      message: "Mật khẩu phải có ít nhất 1 chữ hoa, 1 chữ thường và 1 số!",
+    },
+  ],
 };
 
-const SmartRegistrationModal = ({ 
-  visible, 
-  onCancel, 
-  email, 
+const SmartRegistrationModal = ({
+  visible,
+  onCancel,
+  email,
   password,
-  onSuccess 
+  onSuccess,
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -71,8 +74,8 @@ const SmartRegistrationModal = ({
     if (visible && email) {
       form.setFieldsValue({
         email: email,
-        password: password || '',
-        confirmPassword: password || ''
+        password: password || "",
+        confirmPassword: password || "",
       });
     }
   }, [visible, email, password, form]);
@@ -88,41 +91,43 @@ const SmartRegistrationModal = ({
   }, [visible, form]);
 
   // Watch password field for strength indicator
-  const passwordValue = Form.useWatch('password', form);
-  const passwordStrength = passwordValue ? getPasswordStrength(passwordValue) : null;
+  const passwordValue = Form.useWatch("password", form);
+  const passwordStrength = passwordValue
+    ? getPasswordStrength(passwordValue)
+    : null;
 
   // ✅ FIX: Enhanced form submission
   const handleSubmit = async (values) => {
     setLoading(true);
-    
+
     try {
-      console.log('🚀 Smart registration submission...');
-      
+      console.log("🚀 Smart registration submission...");
+
       // Additional validation
       if (!acceptTerms) {
-        notificationService.error('Vui lòng đồng ý với điều khoản sử dụng!');
+        notificationService.error("Vui lòng đồng ý với điều khoản sử dụng!");
         setLoading(false);
         return;
       }
 
       if (values.password !== values.confirmPassword) {
-        notificationService.error('Mật khẩu xác nhận không khớp!');
+        notificationService.error("Mật khẩu xác nhận không khớp!");
         setLoading(false);
         return;
       }
 
       setCurrentStep(1); // Show processing step
-      
+
       const result = await register({
         name: values.name,
         email: values.email,
-        password: values.password
+        password: values.password,
       });
-      
+
       if (result && result.success) {
-        console.log('✅ Smart registration successful');
+        console.log("✅ Smart registration successful");
         setCurrentStep(2); // Show success step
-        
+
         // Show success step for a moment, then close
         setTimeout(() => {
           form.resetFields();
@@ -130,26 +135,26 @@ const SmartRegistrationModal = ({
           setAcceptTerms(false);
           onSuccess && onSuccess(result);
         }, 2000);
-        
       } else {
-        console.error('❌ Smart registration failed:', result);
+        console.error("❌ Smart registration failed:", result);
         setCurrentStep(0); // Back to form
-        
+
         // Error already handled by authStore/notificationService
         const errorCode = result?.error || ERROR_CODES.SYSTEM_UNKNOWN_ERROR;
-        
+
         // Focus on error field if validation failed
         if (errorCode === ERROR_CODES.VALIDATION_REQUIRED_FIELD) {
-          const firstErrorField = form.getFieldsError().find(field => field.errors.length > 0);
+          const firstErrorField = form
+            .getFieldsError()
+            .find((field) => field.errors.length > 0);
           if (firstErrorField) {
             form.scrollToField(firstErrorField.name);
           }
         }
       }
-      
     } catch (error) {
-      console.error('❌ Smart registration error:', error);
-      notificationService.handleError(error, 'Smart Registration');
+      console.error("❌ Smart registration error:", error);
+      notificationService.handleError(error, "Smart Registration");
       setCurrentStep(0); // Back to form
     } finally {
       setLoading(false);
@@ -169,10 +174,10 @@ const SmartRegistrationModal = ({
   // ✅ FIX: Custom password confirmation validator
   const validateConfirmPassword = ({ getFieldValue }) => ({
     validator(_, value) {
-      if (!value || getFieldValue('password') === value) {
+      if (!value || getFieldValue("password") === value) {
         return Promise.resolve();
       }
-      return Promise.reject(new Error('Mật khẩu xác nhận không khớp!'));
+      return Promise.reject(new Error("Mật khẩu xác nhận không khớp!"));
     },
   });
 
@@ -258,9 +263,11 @@ const SmartRegistrationModal = ({
                   <Input.Password
                     prefix={<LockOutlined />}
                     placeholder="Mật khẩu"
-                    iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                    iconRender={(visible) =>
+                      visible ? <EyeOutlined /> : <EyeInvisibleOutlined />
+                    }
                   />
-                  
+
                   {/* Password strength indicator */}
                   {passwordStrength && (
                     <div className="password-strength-container">
@@ -271,8 +278,8 @@ const SmartRegistrationModal = ({
                         strokeWidth={4}
                         trailColor="#f0f0f0"
                       />
-                      <Text 
-                        type="secondary" 
+                      <Text
+                        type="secondary"
                         className={`strength-text strength-${passwordStrength.level}`}
                       >
                         Độ mạnh: {passwordStrength.text}
@@ -286,17 +293,19 @@ const SmartRegistrationModal = ({
               <Form.Item
                 name="confirmPassword"
                 label="Xác nhận mật khẩu"
-                dependencies={['password']}
+                dependencies={["password"]}
                 rules={[
-                  { required: true, message: 'Vui lòng xác nhận mật khẩu!' },
-                  validateConfirmPassword
+                  { required: true, message: "Vui lòng xác nhận mật khẩu!" },
+                  validateConfirmPassword,
                 ]}
                 hasFeedback
               >
                 <Input.Password
                   prefix={<LockOutlined />}
                   placeholder="Nhập lại mật khẩu"
-                  iconRender={(visible) => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
+                  iconRender={(visible) =>
+                    visible ? <EyeOutlined /> : <EyeInvisibleOutlined />
+                  }
                 />
               </Form.Item>
 
@@ -305,7 +314,10 @@ const SmartRegistrationModal = ({
                 name="terms"
                 valuePropName="checked"
                 rules={[
-                  { required: true, message: 'Vui lòng đồng ý với điều khoản sử dụng!' }
+                  {
+                    required: true,
+                    message: "Vui lòng đồng ý với điều khoản sử dụng!",
+                  },
                 ]}
               >
                 <Checkbox
@@ -318,24 +330,27 @@ const SmartRegistrationModal = ({
 
               {/* Form Actions */}
               <Form.Item className="form-actions">
-                <Space size="middle" style={{ width: '100%', justifyContent: 'flex-end' }}>
-                  <Button 
+                <Space
+                  size="middle"
+                  style={{ width: "100%", justifyContent: "flex-end" }}
+                >
+                  <Button
                     onClick={handleCancel}
                     disabled={loading}
                     size="large"
                   >
                     Hủy
                   </Button>
-                  <Button 
-                    type="primary" 
-                    htmlType="submit" 
+                  <Button
+                    type="primary"
+                    htmlType="submit"
                     loading={loading}
                     disabled={!acceptTerms}
                     icon={<UserAddOutlined />}
                     size="large"
                     className="submit-button"
                   >
-                    {loading ? 'Đang tạo...' : 'Tạo tài khoản'}
+                    {loading ? "Đang tạo..." : "Tạo tài khoản"}
                   </Button>
                 </Space>
               </Form.Item>
@@ -353,10 +368,11 @@ const SmartRegistrationModal = ({
               Đang tạo tài khoản...
             </Title>
             <Text type="secondary" className="step-subtitle">
-              Vui lòng chờ trong giây lát, chúng tôi đang thiết lập tài khoản của bạn
+              Vui lòng chờ trong giây lát, chúng tôi đang thiết lập tài khoản
+              của bạn
             </Text>
-            <Progress 
-              percent={100} 
+            <Progress
+              percent={100}
               status="active"
               showInfo={false}
               strokeWidth={6}
@@ -378,8 +394,8 @@ const SmartRegistrationModal = ({
             <Text type="secondary" className="step-subtitle">
               Đang chuyển hướng đến trang chính...
             </Text>
-            <Progress 
-              percent={100} 
+            <Progress
+              percent={100}
               status="success"
               showInfo={false}
               strokeWidth={6}
@@ -401,12 +417,12 @@ const SmartRegistrationModal = ({
       footer={null}
       width={560}
       centered
-      destroyOnClose
+      destroyOnHidden
       maskClosable={!loading && currentStep === 0}
       closable={!loading && currentStep === 0}
       className="smart-registration-modal"
       styles={{
-        body: { padding: '24px' }
+        body: { padding: "24px" },
       }}
     >
       {/* Progress Steps - Only show during process */}
@@ -421,9 +437,7 @@ const SmartRegistrationModal = ({
       )}
 
       {/* Step Content */}
-      <div className="modal-body">
-        {renderStepContent()}
-      </div>
+      <div className="modal-body">{renderStepContent()}</div>
     </Modal>
   );
 };
